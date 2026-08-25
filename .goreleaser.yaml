@@ -1,0 +1,32 @@
+# goreleaser 配置：跨平台构建 + 裸二进制发布到 GitHub Release
+# 命名约定：agentsync_<os>_<arch>（与 install.sh 下载 URL 对应）
+version: 2
+
+project_name: agentsync
+
+builds:
+  - id: agentsync
+    main: .
+    binary: agentsync
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+
+archives:
+  - format: binary
+    name_template: >-
+      {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if eq .Os "windows" }}.exe{{ end }}
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

@@ -9,7 +9,30 @@
 - 原副本替换为软链指向统一副本 → 询问分发到哪些工具 → 其他工具目录建软链
 - 之后在任一工具里修改，因软链穿透，全部工具即时一致
 
-## 快速开始
+## 安装
+
+**方式一：一键脚本（推荐，无需 Go）**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xmly/agentsync/main/install.sh | bash
+```
+
+**方式二：go install（需要 Go）**
+
+```bash
+go install github.com/xmly/agentsync@latest
+```
+
+安装后启动：
+
+```bash
+agentsync install    # 注册开机自启服务（推荐，装一次长期生效）
+agentsync daemon     # 或前台启动守护进程（调试用）
+```
+
+> 说明：agentsync 只处理「安装后新增」的配置，安装前已存在的配置不处理（无 adopt）。
+
+## 快速开始（本地构建/开发）
 
 ```bash
 # 构建
@@ -27,38 +50,38 @@ go build -o agentsync .
 
 ```
 ~/workspace/agentsync
-├── main.go                     # CLI 入口
+├── main.go                      # CLI 入口
+├── install.sh                   # 一键安装脚本（curl | bash）
+├── .goreleaser.yaml             # 跨平台构建配置
+├── .github/workflows/release.yml # 打 tag 自动发布 GitHub Release
 ├── internal/
-│   ├── adapter/                # 各工具适配器（claude-code/cursor/qoder/hermes…）
-│   │   ├── adapter.go          #   Adapter 接口 + 通用辅助
-│   │   ├── claude_code.go
-│   │   ├── cursor.go
-│   │   ├── qoder.go
-│   │   └── hermes.go
-│   ├── ask/                    # 交互询问（多选/确认）
-│   ├── daemon/                 # 守护进程核心循环
-│   ├── registry/               # 状态库 registry.json（含凭据，0600）
-│   ├── sync/                   # 收敛 + 分发 + 软链替换
-│   └── watch/                  # fsnotify 多目录监听 + debounce
+│   ├── adapter/                 # 各工具适配器（claude-code/cursor/qoder/hermes/codex/opencode/gemini/pi/grok）
+│   ├── ask/                     # 交互询问（多选/确认）
+│   ├── daemon/                  # 守护进程核心循环
+│   ├── mcpread/                 # MCP 多格式读写（JSON/TOML/YAML）
+│   ├── mcpsync/                 # MCP 跨工具同步
+│   ├── registry/                # 状态库 registry.json（含凭据，0600）
+│   ├── sync/                    # 收敛 + 分发 + 软链替换
+│   ├── tui/                     # 交互式状态面板
+│   └── watch/                   # fsnotify 多目录监听 + debounce
 ```
 
 ## 同步矩阵（现状）
 
 | 类型 | 状态 | 说明 |
 |:---|:---|:---|
-| Skill | ✅ M0 已实现 | 监听 → 收敛 `~/.agents/skills/` → 软链分发 |
-| MCP | 🔜 M1 | 监听配置 → 合并 registry → 写回各工具 |
-| Rules | 🔜 M4 | 收敛 `~/.agents/rules/` → 分发 |
+| Skill | ✅ 已实现 | 监听 → 收敛 `~/.agents/skills/` → 软链分发 |
+| MCP | ✅ 已实现 | 多格式（JSON/TOML/YAML）监听 → 合并 registry → 写回各工具 |
+| Rules | ✅ 已实现 | 目录式收敛 + 单文件规则（AGENTS.md/SOUL.md）只收敛 |
 | Memory/Hooks/Plugins | ❌ 不支持 | 各工具私有，仅提示 |
 
 ## 支持的工具
 
 | 适配器 | 状态 |
 |:---|:---|
-| claude-code / cursor / qoder / hermes | ✅ 已实现（M0） |
-| opencode / codex | 🔜 M3 |
-| gemini / pi | 🔜 M3（规格已调研） |
-| grok | 🔜 待实测 |
+| claude-code / cursor / qoder / hermes / codex / opencode / gemini / pi / grok | ✅ 已实现 |
+
+> codex / opencode / grok 的软链与 MCP 写回待真机验证；grok 因官方安装源被墙，配置格式经文档确认。
 
 ## 设计决策（详见 docs/agent-sync-prd.md）
 

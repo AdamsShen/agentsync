@@ -4,3 +4,8 @@
 
 # 本地测试
 *.log
+
+# IDE / 系统文件
+.idea/
+.vscode/
+.DS_Store
