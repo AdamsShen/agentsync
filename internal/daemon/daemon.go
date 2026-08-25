@@ -3,14 +3,17 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/AdamsShen/agentsync/internal/adapter"
 	"github.com/AdamsShen/agentsync/internal/ask"
 	"github.com/AdamsShen/agentsync/internal/mcpread"
 	"github.com/AdamsShen/agentsync/internal/mcpsync"
+	"github.com/AdamsShen/agentsync/internal/notify"
 	"github.com/AdamsShen/agentsync/internal/registry"
 	"github.com/AdamsShen/agentsync/internal/sync"
 	"github.com/AdamsShen/agentsync/internal/watch"
@@ -79,6 +82,11 @@ func (h *Handler) OnSkill(ctx context.Context, a adapter.Adapter, dir string) er
 	it.ProjectedTo = targets
 	h.Reg.UpsertItem(it)
 	_ = h.Reg.Save()
+	// 桌面通知：告知本次同步结果（失败不阻塞）
+	if len(targets) > 0 {
+		_ = notify.Send("agentsync 已同步",
+			fmt.Sprintf("skill %s → %v", filepath.Base(it.Canonical), targets))
+	}
 	return nil
 }
 
@@ -150,6 +158,10 @@ func (h *Handler) projectRuleToDirs(ctx context.Context, a adapter.Adapter, it *
 	}
 	h.Reg.UpsertItem(it)
 	_ = h.Reg.Save()
+	if len(it.ProjectedTo) > 0 {
+		_ = notify.Send("agentsync 已同步",
+			fmt.Sprintf("rule %s → %v", filepath.Base(it.Canonical), it.ProjectedTo))
+	}
 	return nil
 }
 
@@ -236,6 +248,11 @@ func (h *Handler) OnMcpChange(ctx context.Context, a adapter.Adapter) error {
 				it.ProjectedTo = targets
 				h.Reg.UpsertItem(it)
 			}
+		}
+		// 桌面通知：告知本次 MCP 同步结果
+		if len(targets) > 0 {
+			_ = notify.Send("agentsync 已同步",
+				fmt.Sprintf("MCP %v → %v", synced, targets))
 		}
 	}
 	_ = h.Reg.Save()
