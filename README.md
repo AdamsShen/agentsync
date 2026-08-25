@@ -14,7 +14,7 @@
 **方式一：一键脚本（推荐，无需 Go）**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AdamsShen/agentsync/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AdamsShen/agentsync/master/install.sh | bash
 ```
 
 **方式二：go install（需要 Go）**

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # agentsync 一键安装脚本：下载对应平台的预编译二进制到 ~/.local/bin
-# 用法：curl -fsSL https://raw.githubusercontent.com/AdamsShen/agentsync/main/install.sh | bash
+# 用法：curl -fsSL https://raw.githubusercontent.com/AdamsShen/agentsync/master/install.sh | bash
 set -euo pipefail
 
 REPO="AdamsShen/agentsync"
