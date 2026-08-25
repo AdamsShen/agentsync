@@ -13,6 +13,7 @@ import (
 	"github.com/xmly/agentsync/internal/daemon"
 	"github.com/xmly/agentsync/internal/registry"
 	"github.com/xmly/agentsync/internal/svc"
+	"github.com/xmly/agentsync/internal/tui"
 )
 
 const usage = `agentsync —— 跨 Agent 工具配置自动同步工具
@@ -23,6 +24,7 @@ const usage = `agentsync —— 跨 Agent 工具配置自动同步工具
   agentsync uninstall         移除开机自启服务
   agentsync status            检测本机 agent + 显示 registry 状态
   agentsync list              列出已收敛的配置
+  agentsync tui               交互式状态面板
   agentsync help              显示帮助
 `
 
@@ -62,6 +64,10 @@ func main() {
 		printStatus(reg)
 	case "list":
 		printList(reg)
+	case "tui":
+		if err := tui.Run(dir, reg); err != nil {
+			log.Fatalf("TUI 退出异常: %v", err)
+		}
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:
