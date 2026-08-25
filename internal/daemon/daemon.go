@@ -164,7 +164,8 @@ func (h *Handler) OnMcpChange(ctx context.Context, a adapter.Adapter) error {
 	diff := mcpsync.DetectDiff(f, h.Reg, a.Name())
 
 	if len(diff.Removed) > 0 {
-		// 外部删除：删除-询问流后续里程碑处理，先记录
+		// TODO(MCP 删除-询问流)：外部删除 server 目前只记录日志，不反向询问分发删除。
+		// 原因：删除是破坏性操作，需先设计「询问-确认-分发删除」流程（防误删），暂缓实现。
 		log.Printf("[daemon] MCP 外部删除 %s: %v（待后续处理）", a.Name(), diff.Removed)
 	}
 	if len(diff.Added) == 0 && len(diff.Changed) == 0 {
