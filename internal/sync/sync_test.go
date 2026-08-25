@@ -120,3 +120,72 @@ func TestIngestSkill_DedupNoOverwrite(t *testing.T) {
 		}
 	})
 }
+
+func TestIngestRuleFile_ToolPrefixName(t *testing.T) {
+	withTempHome(t, func(home string) {
+		reg := &registry.Registry{Items: []*registry.Item{}, Tools: map[string]registry.ToolState{}}
+		ctx := context.Background()
+
+		// 建 codex 的单文件规则 ~/.codex/AGENTS.md
+		src := filepath.Join(home, ".codex", "AGENTS.md")
+		if err := os.MkdirAll(filepath.Dir(src), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(src, []byte("# codex rules\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		it, err := IngestRuleFile(ctx, reg, adapter.Codex{}, src)
+		if err != nil {
+			t.Fatalf("IngestRuleFile 失败: %v", err)
+		}
+
+		// canonical 名带 tool 前缀，避免与 hermes SOUL.md 等冲突
+		if filepath.Base(it.Canonical) != "codex-AGENTS.md" {
+			t.Fatalf("canonical 名错误: %s", filepath.Base(it.Canonical))
+		}
+		if it.ID != "rules:codex-AGENTS.md" {
+			t.Fatalf("ID 错误: %s", it.ID)
+		}
+		// canonical 是实体副本，非软链
+		if fi, _ := os.Lstat(it.Canonical); fi.Mode()&os.ModeSymlink != 0 {
+			t.Fatal("canonical 不应是软链")
+		}
+		// 源单文件规则仍是实体（不软链源文件）
+		if fi, _ := os.Lstat(src); fi.Mode()&os.ModeSymlink != 0 {
+			t.Fatal("源单文件规则不应被软链")
+		}
+	})
+}
+
+func TestIngestRuleFile_NoNameCollision(t *testing.T) {
+	withTempHome(t, func(home string) {
+		reg := &registry.Registry{Items: []*registry.Item{}, Tools: map[string]registry.ToolState{}}
+		ctx := context.Background()
+
+		// codex AGENTS.md 与 hermes SOUL.md 同为单文件规则，收敛后名字不冲突
+		codexSrc := filepath.Join(home, ".codex", "AGENTS.md")
+		os.MkdirAll(filepath.Dir(codexSrc), 0o755)
+		os.WriteFile(codexSrc, []byte("codex rules"), 0o644)
+
+		hermesSrc := filepath.Join(home, ".hermes", "SOUL.md")
+		os.MkdirAll(filepath.Dir(hermesSrc), 0o755)
+		os.WriteFile(hermesSrc, []byte("hermes soul"), 0o644)
+
+		it1, err := IngestRuleFile(ctx, reg, adapter.Codex{}, codexSrc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		it2, err := IngestRuleFile(ctx, reg, adapter.Hermes{}, hermesSrc)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if it1.ID == it2.ID {
+			t.Fatal("不同工具的单文件规则 ID 不应相同")
+		}
+		if it1.ID != "rules:codex-AGENTS.md" || it2.ID != "rules:hermes-SOUL.md" {
+			t.Fatalf("ID 错误: %s / %s", it1.ID, it2.ID)
+		}
+	})
+}

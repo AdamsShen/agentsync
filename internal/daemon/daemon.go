@@ -90,11 +90,31 @@ func (h *Handler) OnRules(ctx context.Context, a adapter.Adapter, file string) e
 	}
 	log.Printf("[daemon] 已收敛 rule 到 %s", it.Canonical)
 
-	// 原工具副本替换为软链
+	// 原工具副本替换为软链（目录式规则软链源文件）
 	if err := sync.ReplaceWithSymlink(ctx, a, file, it); err != nil {
 		log.Printf("[daemon] 替换源 rule 为软链失败: %v", err)
 	}
 
+	return h.projectRuleToDirs(ctx, a, it)
+}
+
+// OnRuleFile 工具单文件规则（AGENTS.md/SOUL.md 等）收敛：只复制进 canonical，
+// 不软链源文件；分发只到有独立 rules 目录的工具（只收敛，不分发回单文件工具）。
+func (h *Handler) OnRuleFile(ctx context.Context, a adapter.Adapter, file string) error {
+	log.Printf("[daemon] 检测到单文件 rule: %s (来源: %s)", file, a.Name())
+
+	it, err := sync.IngestRuleFile(ctx, h.Reg, a, file)
+	if err != nil {
+		return err
+	}
+	log.Printf("[daemon] 已收敛单文件 rule 到 %s", it.Canonical)
+
+	return h.projectRuleToDirs(ctx, a, it)
+}
+
+// projectRuleToDirs 询问后把 rule item 分发到有独立 rules 目录的工具（源工具除外）。
+// 单文件规则工具（codex/hermes/gemini/opencode）RulesDir 为空，天然不参与分发。
+func (h *Handler) projectRuleToDirs(ctx context.Context, a adapter.Adapter, it *registry.Item) error {
 	// 询问分发目标（只列已检测、支持 rules 且声明了 rules 目录的工具）
 	candidates := []string{}
 	for _, ad := range h.Adapters {

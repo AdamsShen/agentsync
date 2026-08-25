@@ -1,0 +1,61 @@
+package watch
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/xmly/agentsync/internal/adapter"
+	"github.com/xmly/agentsync/internal/registry"
+)
+
+// mockHandler 记录 OnRuleFile 回调的 Handler 实现
+type mockHandler struct {
+	ruleFileCalls []string
+}
+
+func (m *mockHandler) OnSkill(context.Context, adapter.Adapter, string) error { return nil }
+func (m *mockHandler) OnRules(context.Context, adapter.Adapter, string) error { return nil }
+func (m *mockHandler) OnRuleFile(_ context.Context, _ adapter.Adapter, file string) error {
+	m.ruleFileCalls = append(m.ruleFileCalls, file)
+	return nil
+}
+func (m *mockHandler) OnMcpChange(context.Context, adapter.Adapter) error { return nil }
+func (m *mockHandler) OnRescan(context.Context) error                     { return nil }
+
+func TestScanRuleFile(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "AGENTS.md")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := &registry.Registry{Items: []*registry.Item{}, Tools: map[string]registry.ToolState{}}
+	h := &mockHandler{}
+	w := &Watcher{reg: reg, handler: h}
+	ctx := context.Background()
+
+	// 未收敛 → 回调一次
+	w.scanRuleFile(ctx, adapter.Codex{}, file)
+	if len(h.ruleFileCalls) != 1 {
+		t.Fatalf("未收敛应回调 1 次，实际 %d", len(h.ruleFileCalls))
+	}
+
+	// 已收敛（registry 有 codex-AGENTS.md）→ 不再回调
+	reg.UpsertItem(&registry.Item{ID: "rules:codex-AGENTS.md", Kind: registry.KindRules})
+	w.scanRuleFile(ctx, adapter.Codex{}, file)
+	if len(h.ruleFileCalls) != 1 {
+		t.Fatalf("已收敛不应再回调，实际 %d", len(h.ruleFileCalls))
+	}
+}
+
+func TestScanRuleFile_Missing(t *testing.T) {
+	reg := &registry.Registry{Items: []*registry.Item{}, Tools: map[string]registry.ToolState{}}
+	h := &mockHandler{}
+	w := &Watcher{reg: reg, handler: h}
+	w.scanRuleFile(context.Background(), adapter.Codex{}, filepath.Join(t.TempDir(), "AGENTS.md"))
+	if len(h.ruleFileCalls) != 0 {
+		t.Fatalf("文件不存在不应回调，实际 %d", len(h.ruleFileCalls))
+	}
+}

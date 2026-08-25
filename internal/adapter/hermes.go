@@ -38,12 +38,15 @@ func (Hermes) WatchSpecs() []WatchSpec {
 			Recurse: true,
 		},
 		mcpWatch("hermes", join(homeDir(), ".hermes", "config.yaml")),
+		// 单文件规则：只收敛进 canonical，不分发回 hermes（SOUL.md 是 hermes 人格文件）
+		ruleFileWatch("hermes", join(homeDir(), ".hermes", "SOUL.md")),
 	}
 }
 
 func (Hermes) SkillsDir() string { return join(homeDir(), ".hermes", "skills") }
 
-// RulesDir hermes 已实测无独立 rules 目录（仅根目录 SOUL.md），暂不启用
+// RulesDir hermes 已实测无独立 rules 目录（仅根目录 SOUL.md 单文件）。
+// SOUL.md 经 ruleFileWatch 收敛进 canonical（只收敛，不分发到 hermes）。
 func (Hermes) RulesDir() string { return "" }
 
 func (Hermes) HasSKILL(dir string) bool {

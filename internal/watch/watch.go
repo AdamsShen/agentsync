@@ -19,8 +19,10 @@ import (
 type Handler interface {
 	// OnSkill 工具 skills 目录出现新 skill 目录（未收敛）
 	OnSkill(ctx context.Context, a adapter.Adapter, dir string) error
-	// OnRules 工具 rules 目录出现新 rule 文件（未收敛）
+	// OnRules 工具 rules 目录出现新 rule 文件（目录式，未收敛）
 	OnRules(ctx context.Context, a adapter.Adapter, file string) error
+	// OnRuleFile 工具的单文件规则（AGENTS.md/SOUL.md 等）出现或变化（未收敛）
+	OnRuleFile(ctx context.Context, a adapter.Adapter, file string) error
 	// OnMcpChange 工具的 MCP 配置文件发生变化
 	OnMcpChange(ctx context.Context, a adapter.Adapter) error
 	// OnRescan 周期性重扫检测新 agent
@@ -131,11 +133,21 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 }
 
-// addSpec 注册一个监听（目录类 MkdirAll+Add，MCP 文件类确保存在+Add）
+// addSpec 注册一个监听。以 Recurse 区分目录/文件：Recurse=false 为单文件（MCP 文件、单文件规则）。
 func (w *Watcher) addSpec(fw *fsnotify.Watcher, a adapter.Adapter, spec adapter.WatchSpec) error {
-	if spec.Kind == registry.KindMCP {
-		if err := ensureMCPFile(spec.Path); err != nil {
-			return err
+	if !spec.Recurse {
+		// 文件类监听
+		switch spec.Kind {
+		case registry.KindMCP:
+			// MCP 文件不存在则写空 {}，便于监听
+			if err := ensureMCPFile(spec.Path); err != nil {
+				return err
+			}
+		case registry.KindRules:
+			// 单文件规则是用户手写活文件：存在才监听，不存在不自动创建
+			if _, err := os.Stat(spec.Path); os.IsNotExist(err) {
+				return nil
+			}
 		}
 		if err := fw.Add(spec.Path); err != nil {
 			return err
@@ -143,6 +155,7 @@ func (w *Watcher) addSpec(fw *fsnotify.Watcher, a adapter.Adapter, spec adapter.
 		w.entries[spec.Path] = entry{a, spec}
 		return nil
 	}
+	// 目录类监听：MkdirAll + Add
 	if err := os.MkdirAll(spec.Path, 0o755); err != nil {
 		return err
 	}
@@ -153,15 +166,15 @@ func (w *Watcher) addSpec(fw *fsnotify.Watcher, a adapter.Adapter, spec adapter.
 	return nil
 }
 
-// route 由事件路径反查归属的 spec.Path（MCP 精确匹配，目录前缀匹配）
+// route 由事件路径反查归属的 spec.Path（文件类精确匹配，目录类前缀匹配）
 func (w *Watcher) route(p string) (string, bool) {
 	if _, ok := w.entries[p]; ok {
 		return p, true
 	}
 	sep := string(filepath.Separator)
 	for root, e := range w.entries {
-		if e.spec.Kind == registry.KindMCP {
-			continue
+		if !e.spec.Recurse {
+			continue // 文件类 spec（MCP/单文件规则）只精确匹配
 		}
 		if p == root || strings.HasPrefix(p, root+sep) {
 			return root, true
@@ -180,7 +193,11 @@ func (w *Watcher) dispatch(ctx context.Context, fw *fsnotify.Watcher, root strin
 	case registry.KindSkill:
 		w.scanSkillDir(ctx, fw, e.a, root)
 	case registry.KindRules:
-		w.scanRulesDir(ctx, fw, e.a, root)
+		if e.spec.Recurse {
+			w.scanRulesDir(ctx, fw, e.a, root)
+		} else {
+			w.scanRuleFile(ctx, e.a, root)
+		}
 	case registry.KindMCP:
 		if w.handler != nil {
 			_ = w.handler.OnMcpChange(ctx, e.a)
@@ -243,6 +260,24 @@ func (w *Watcher) scanRulesDir(ctx context.Context, fw *fsnotify.Watcher, a adap
 			if err := w.handler.OnRules(ctx, a, p); err != nil {
 				log.Printf("[watch] 收敛 rule %s 失败: %v", p, err)
 			}
+		}
+	}
+}
+
+// scanRuleFile 处理单文件规则（AGENTS.md/SOUL.md 等）：存在且未收敛则回调。
+// 命名规则：canonical 名 = tool 前缀 + "-" + basename（与 sync.IngestRuleFile 保持一致）。
+func (w *Watcher) scanRuleFile(ctx context.Context, a adapter.Adapter, file string) {
+	if _, err := os.Stat(file); os.IsNotExist(err) {
+		return // 文件被删，跳过（不自动重建）
+	}
+	name := a.Name() + "-" + filepath.Base(file)
+	if w.reg.GetItem("rules:"+name) != nil {
+		return // 已收敛
+	}
+	// 单文件规则源是用户手写活文件，不会被软链，无需 IsOwnedProjection 判断
+	if w.handler != nil {
+		if err := w.handler.OnRuleFile(ctx, a, file); err != nil {
+			log.Printf("[watch] 收敛单文件 rule %s 失败: %v", file, err)
 		}
 	}
 }

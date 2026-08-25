@@ -134,9 +134,15 @@ func projectRule(rulesDir, canonicalPath, name string) error {
 	return symlinkDir(canonicalPath, join(rulesDir, name))
 }
 
-// ruleWatch 生成某工具的 rules 目录监听 spec
+// ruleWatch 生成某工具的 rules 目录监听 spec（目录式：一个文件一条规则）
 func ruleWatch(tool, dir string) WatchSpec {
 	return WatchSpec{Path: dir, Kind: registry.KindRules, Tool: tool, Recurse: true}
+}
+
+// ruleFileWatch 生成某工具的单文件规则监听 spec（单文件：一个文件承载所有规则）。
+// Recurse=false 表示监听单个文件（非目录），watch 层据此区分目录/文件规则。
+func ruleFileWatch(tool, file string) WatchSpec {
+	return WatchSpec{Path: file, Kind: registry.KindRules, Tool: tool}
 }
 
 // mcpWatch 生成某工具的 MCP 文件监听 spec

@@ -129,6 +129,31 @@ func IngestRule(ctx context.Context, reg *registry.Registry, a adapter.Adapter, 
 	return it, nil
 }
 
+// IngestRuleFile 把工具的单文件规则收敛到 canonical（~/.agents/rules/）。
+// 命名加工具前缀（如 codex-AGENTS.md）避免多工具同名冲突；只复制实体，
+// 不软链源文件——单文件规则（AGENTS.md/SOUL.md）是用户手写的活文件，保留原样。
+func IngestRuleFile(ctx context.Context, reg *registry.Registry, a adapter.Adapter, file string) (*registry.Item, error) {
+	name := a.Name() + "-" + filepath.Base(file)
+	dest := filepath.Join(RulesRoot(), name)
+
+	if err := os.MkdirAll(RulesRoot(), 0o755); err != nil {
+		return nil, err
+	}
+	if err := copyFile(file, dest); err != nil {
+		return nil, fmt.Errorf("复制单文件 rule 到 canonical 失败: %w", err)
+	}
+
+	it := &registry.Item{
+		ID:        "rules:" + name,
+		Kind:      registry.KindRules,
+		Canonical: dest,
+		Origin:    a.Name(),
+		CreatedAt: time.Now(),
+	}
+	reg.UpsertItem(it)
+	return it, nil
+}
+
 // copyFile 复制单个文件（跟随软链，拷贝实体内容）
 func copyFile(src, dst string) error {
 	data, err := os.ReadFile(src)

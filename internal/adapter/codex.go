@@ -38,12 +38,15 @@ func (Codex) WatchSpecs() []WatchSpec {
 			Recurse: true,
 		},
 		mcpWatch("codex", join(homeDir(), ".codex", "config.toml")),
+		// 单文件规则：只收敛进 canonical，不分发回 codex（AGENTS.md 是用户手写活文件）
+		ruleFileWatch("codex", join(homeDir(), ".codex", "AGENTS.md")),
 	}
 }
 
 func (Codex) SkillsDir() string { return join(homeDir(), ".codex", "skills") }
 
-// RulesDir codex 走 AGENTS.md 单文件约定，无 rules 目录（待 M4.5 支持单文件规则）
+// RulesDir codex 走 AGENTS.md 单文件约定，无独立 rules 目录。
+// 规则经 ruleFileWatch 收敛进 canonical（只收敛，不分发到 codex 单文件）。
 func (Codex) RulesDir() string { return "" }
 
 func (Codex) HasSKILL(dir string) bool {
