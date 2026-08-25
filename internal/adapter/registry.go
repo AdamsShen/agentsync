@@ -11,11 +11,11 @@ var all = []Adapter{
 	Codex{},
 	Cursor{},
 	Gemini{},
+	Grok{},
 	Hermes{},
 	OpenCode{},
 	Pi{},
 	Qoder{},
-	// Grok: 待实测（Grok Code Fast，CLI/IDE）
 }
 
 // All 返回全部适配器

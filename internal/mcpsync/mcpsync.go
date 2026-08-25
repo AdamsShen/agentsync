@@ -46,6 +46,8 @@ func Adapters() []McpAdapter {
 		mcpCfg{"cursor", filepath.Join(h, ".cursor", "mcp.json"), mcpread.FormatJSON, "mcpServers"},
 		mcpCfg{"qoder", filepath.Join(h, ".qoder", "mcp.json"), mcpread.FormatJSON, "mcpServers"},
 		mcpCfg{"codex", filepath.Join(h, ".codex", "config.toml"), mcpread.FormatTOML, "mcp_servers"},
+		// grok 已确认（官方文档）：mcp 键名 mcp_servers（TOML），与 codex 同构；本机未装待实测
+		mcpCfg{"grok", filepath.Join(h, ".grok", "config.toml"), mcpread.FormatTOML, "mcp_servers"},
 		mcpCfg{"opencode", filepath.Join(h, ".config", "opencode", "opencode.json"), mcpread.FormatJSON, "mcp"},
 		// gemini 已实测：mcp 键名确为 mcpServers（JSON），settings.json 另含 security 等顶层键需无损保留
 		mcpCfg{"gemini", filepath.Join(h, ".gemini", "settings.json"), mcpread.FormatJSON, "mcpServers"},
