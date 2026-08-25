@@ -47,7 +47,7 @@ func Adapters() []McpAdapter {
 		mcpCfg{"qoder", filepath.Join(h, ".qoder", "mcp.json"), mcpread.FormatJSON, "mcpServers"},
 		mcpCfg{"codex", filepath.Join(h, ".codex", "config.toml"), mcpread.FormatTOML, "mcp_servers"},
 		mcpCfg{"opencode", filepath.Join(h, ".config", "opencode", "opencode.json"), mcpread.FormatJSON, "mcp"},
-		// hermes config.yaml 的 mcp 键名待实测；先用 mcp_servers 占位
+		// hermes 已实测：mcp 键名确为 mcp_servers（YAML），读写无损
 		mcpCfg{"hermes", filepath.Join(h, ".hermes", "config.yaml"), mcpread.FormatYAML, "mcp_servers"},
 	}
 }

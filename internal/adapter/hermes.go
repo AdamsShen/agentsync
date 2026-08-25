@@ -27,7 +27,7 @@ func (Hermes) KindSupported(k Kind) bool {
 	return k == registry.KindSkill || k == registry.KindMCP || k == registry.KindRules
 }
 
-func (Hermes) SupportsSymlink() bool { return true } // 待实测确认
+func (Hermes) SupportsSymlink() bool { return true } // 已实测：skills 目录内软链生效
 
 func (Hermes) WatchSpecs() []WatchSpec {
 	return []WatchSpec{
@@ -43,7 +43,7 @@ func (Hermes) WatchSpecs() []WatchSpec {
 
 func (Hermes) SkillsDir() string { return join(homeDir(), ".hermes", "skills") }
 
-// RulesDir hermes rules 目录待实测，暂不启用
+// RulesDir hermes 已实测无独立 rules 目录（仅根目录 SOUL.md），暂不启用
 func (Hermes) RulesDir() string { return "" }
 
 func (Hermes) HasSKILL(dir string) bool {

@@ -27,7 +27,7 @@ func (Gemini) KindSupported(k Kind) bool {
 	return k == registry.KindSkill || k == registry.KindMCP || k == registry.KindRules
 }
 
-func (Gemini) SupportsSymlink() bool { return true } // 待实测
+func (Gemini) SupportsSymlink() bool { return true } // 本机未装 gemini，待实测
 
 func (Gemini) WatchSpecs() []WatchSpec {
 	return []WatchSpec{
@@ -42,7 +42,7 @@ func (Gemini) WatchSpecs() []WatchSpec {
 
 func (Gemini) SkillsDir() string { return join(homeDir(), ".gemini", "skills") }
 
-// RulesDir gemini rules 目录待实测，暂不启用
+// RulesDir gemini 本机未装，rules 目录约定待实测，暂不启用
 func (Gemini) RulesDir() string { return "" }
 
 func (Gemini) HasSKILL(dir string) bool {
