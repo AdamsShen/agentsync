@@ -8,10 +8,14 @@ import (
 // all 已注册的所有适配器（按名字排序）
 var all = []Adapter{
 	ClaudeCode{},
+	Codex{},
 	Cursor{},
-	Qoder{},
+	Gemini{},
 	Hermes{},
-	// M3 加入: OpenCode{}, Codex{}, Gemini{}, Pi{}, Grok{}
+	OpenCode{},
+	Pi{},
+	Qoder{},
+	// Grok: 待实测（Grok Code Fast，CLI/IDE）
 }
 
 // All 返回全部适配器
