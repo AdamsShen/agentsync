@@ -43,6 +43,7 @@ type Watcher struct {
 	rescan   time.Duration
 	fw       *fsnotify.Watcher
 	entries  map[string]entry // spec.Path → 归属
+	baseline map[string]bool  // 「无 adopt」基线：启动时既有的配置 ID（skill:/rules: 前缀）
 }
 
 // New 创建监听器。rescan 间隔取自 registry（缺省 5 分钟）。
@@ -79,13 +80,8 @@ func (w *Watcher) Run(ctx context.Context) error {
 		}
 	}
 
-	// 启动初始全量扫描：收敛启动前已存在的实体配置（消除靠 fsnotify 事件触发的延迟与不可预测性）。
-	// scanSkillDir/scanRulesDir/scanRuleFile 内部有判重，已收敛/我方软链会跳过。
-	for _, a := range w.adapters {
-		for _, spec := range a.WatchSpecs() {
-			w.dispatch(ctx, fw, spec.Path)
-		}
-	}
+	// 建立「无 adopt」基线：记录启动时已存在的实体配置，之后只收敛基线之外的新增。
+	w.buildBaseline()
 
 	rescan := time.NewTicker(w.rescan)
 	defer rescan.Stop()
@@ -174,6 +170,54 @@ func (w *Watcher) addSpec(fw *fsnotify.Watcher, a adapter.Adapter, spec adapter.
 	return nil
 }
 
+// buildBaseline 建立「无 adopt」基线：记录启动时已存在的实体 skill/rules，
+// 之后 scanSkillDir/scanRulesDir/scanRuleFile 跳过基线，只收敛启动后新增的。
+func (w *Watcher) buildBaseline() {
+	w.baseline = map[string]bool{}
+	ctx := context.Background()
+	for _, a := range w.adapters {
+		for _, spec := range a.WatchSpecs() {
+			switch spec.Kind {
+			case registry.KindSkill:
+				entries, err := os.ReadDir(spec.Path)
+				if err != nil {
+					continue
+				}
+				for _, e := range entries {
+					if !e.IsDir() {
+						continue
+					}
+					p := filepath.Join(spec.Path, e.Name())
+					if owned, _ := a.IsOwnedProjection(ctx, p); owned {
+						continue // 我方软链（此前已收敛），非既有实体
+					}
+					if !a.HasSKILL(p) {
+						continue
+					}
+					w.baseline["skill:"+e.Name()] = true
+				}
+			case registry.KindRules:
+				if spec.Recurse {
+					entries, err := os.ReadDir(spec.Path)
+					if err != nil {
+						continue
+					}
+					for _, e := range entries {
+						if !e.IsDir() && isRuleFile(e.Name()) {
+							w.baseline["rules:"+e.Name()] = true
+						}
+					}
+				} else {
+					// 单文件规则：名字 = tool 前缀 + basename（与 scanRuleFile 一致）
+					if _, err := os.Stat(spec.Path); err == nil {
+						w.baseline["rules:"+a.Name()+"-"+filepath.Base(spec.Path)] = true
+					}
+				}
+			}
+		}
+	}
+}
+
 // route 由事件路径反查归属的 spec.Path（文件类精确匹配，目录类前缀匹配）
 func (w *Watcher) route(p string) (string, bool) {
 	if _, ok := w.entries[p]; ok {
@@ -230,6 +274,9 @@ func (w *Watcher) scanSkillDir(ctx context.Context, fw *fsnotify.Watcher, a adap
 		if w.reg.GetItem("skill:"+e.Name()) != nil {
 			continue // 已收敛
 		}
+		if w.baseline["skill:"+e.Name()] {
+			continue // 启动前既有配置（无 adopt）
+		}
 		if owned, _ := a.IsOwnedProjection(ctx, p); owned {
 			continue // 我方投影软链
 		}
@@ -261,6 +308,9 @@ func (w *Watcher) scanRulesDir(ctx context.Context, fw *fsnotify.Watcher, a adap
 		if w.reg.GetItem("rules:"+e.Name()) != nil {
 			continue
 		}
+		if w.baseline["rules:"+e.Name()] {
+			continue // 启动前既有配置（无 adopt）
+		}
 		if owned, _ := a.IsOwnedProjection(ctx, p); owned {
 			continue
 		}
@@ -281,6 +331,9 @@ func (w *Watcher) scanRuleFile(ctx context.Context, a adapter.Adapter, file stri
 	name := a.Name() + "-" + filepath.Base(file)
 	if w.reg.GetItem("rules:"+name) != nil {
 		return // 已收敛
+	}
+	if w.baseline["rules:"+name] {
+		return // 启动前既有配置（无 adopt）
 	}
 	// 单文件规则源是用户手写活文件，不会被软链，无需 IsOwnedProjection 判断
 	if w.handler != nil {

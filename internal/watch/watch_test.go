@@ -64,30 +64,45 @@ func TestScanRuleFile_Missing(t *testing.T) {
 	}
 }
 
-// TestDispatchInitialScanSkill 验证启动初始扫描：dispatch 对已有实体 skill 触发收敛。
-func TestDispatchInitialScanSkill(t *testing.T) {
+// TestScanSkillDir_SkipsBaseline 验证「无 adopt」：基线里既有的 skill 不收敛。
+func TestScanSkillDir_SkipsBaseline(t *testing.T) {
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "foo")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: foo\n---\nbody\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: foo\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	reg := &registry.Registry{Items: []*registry.Item{}, Tools: map[string]registry.ToolState{}}
 	h := &mockHandler{}
-	w := &Watcher{
-		reg:     reg,
-		handler: h,
-		entries: map[string]entry{
-			dir: {a: adapter.ClaudeCode{}, spec: adapter.WatchSpec{Path: dir, Kind: registry.KindSkill, Tool: "claude-code", Recurse: true}},
-		},
+	w := &Watcher{reg: reg, handler: h, baseline: map[string]bool{"skill:foo": true}}
+
+	w.scanSkillDir(context.Background(), nil, adapter.ClaudeCode{}, dir)
+	if len(h.skillCalls) != 0 {
+		t.Fatalf("基线里既有的 skill 不应收敛，实际 %d", len(h.skillCalls))
+	}
+}
+
+// TestScanSkillDir_ConvergesNewSkill 验证「无 adopt」：基线之外新增的 skill 收敛。
+func TestScanSkillDir_ConvergesNewSkill(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "foo")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: foo\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	w.dispatch(context.Background(), nil, dir)
+	reg := &registry.Registry{Items: []*registry.Item{}, Tools: map[string]registry.ToolState{}}
+	h := &mockHandler{}
+	w := &Watcher{reg: reg, handler: h, baseline: map[string]bool{}}
+
+	w.scanSkillDir(context.Background(), nil, adapter.ClaudeCode{}, dir)
 	if len(h.skillCalls) != 1 {
-		t.Fatalf("初始扫描应收敛 1 个 skill，实际 %d", len(h.skillCalls))
+		t.Fatalf("基线之外新增的 skill 应收敛，实际 %d", len(h.skillCalls))
 	}
 	if h.skillCalls[0] != skillDir {
 		t.Fatalf("收敛路径错误: %s", h.skillCalls[0])

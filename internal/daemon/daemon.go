@@ -24,6 +24,8 @@ type Handler struct {
 	Reg      *registry.Registry
 	Adapters []adapter.Adapter // 已检测适配器（动态更新）
 	W        *watch.Watcher    // 监听器（动态接入新 agent 用）
+
+	mcpBaseline map[string]bool // 「无 adopt」基线：启动时既有的 MCP server 名
 }
 
 // SetWatcher 注入监听器（供动态接入）
@@ -151,6 +153,21 @@ func (h *Handler) projectRuleToDirs(ctx context.Context, a adapter.Adapter, it *
 	return nil
 }
 
+// buildMcpBaseline 建立 MCP 的「无 adopt」基线：记录启动时各工具既有的 MCP server 名。
+// 之后 OnMcpChange 跳过这些既有 server，只收敛启动后新增的。
+func (h *Handler) buildMcpBaseline() {
+	h.mcpBaseline = map[string]bool{}
+	for _, ma := range mcpsync.Adapters() {
+		f, err := mcpread.Read(ma.McpFile(), ma.Format(), ma.ServersKey())
+		if err != nil {
+			continue
+		}
+		for name := range f.Servers {
+			h.mcpBaseline[name] = true
+		}
+	}
+}
+
 // OnMcpChange 工具 MCP 配置文件变化：读文件 → 对比 registry → 收敛 → 询问 → 分发
 func (h *Handler) OnMcpChange(ctx context.Context, a adapter.Adapter) error {
 	ma, ok := mcpsync.AdapterByName(a.Name())
@@ -160,6 +177,12 @@ func (h *Handler) OnMcpChange(ctx context.Context, a adapter.Adapter) error {
 	f, err := mcpread.Read(ma.McpFile(), ma.Format(), ma.ServersKey())
 	if err != nil {
 		return err
+	}
+	// 无 adopt：移除启动前既有且尚未收敛的 server，只收敛启动后新增/变更的
+	for name := range h.mcpBaseline {
+		if h.Reg.GetItem("mcp:"+name) == nil {
+			delete(f.Servers, name)
+		}
 	}
 	diff := mcpsync.DetectDiff(f, h.Reg, a.Name())
 
@@ -266,6 +289,7 @@ func Run(ctx context.Context, reg *registry.Registry) error {
 	log.Printf("[daemon] 检测到 %d 个 agent: %v", len(detected), adapterNames(detected))
 
 	h := &Handler{Reg: reg, Adapters: detected}
+	h.buildMcpBaseline() // 建立 MCP 无 adopt 基线
 	w := watch.New(reg, detected, h, debounce)
 	h.SetWatcher(w)
 	return w.Run(ctx)
