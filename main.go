@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/xmly/agentsync/internal/adapter"
-	"github.com/xmly/agentsync/internal/daemon"
-	"github.com/xmly/agentsync/internal/registry"
-	"github.com/xmly/agentsync/internal/svc"
-	"github.com/xmly/agentsync/internal/tui"
+	"github.com/AdamsShen/agentsync/internal/adapter"
+	"github.com/AdamsShen/agentsync/internal/daemon"
+	"github.com/AdamsShen/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/svc"
+	"github.com/AdamsShen/agentsync/internal/tui"
 )
 
 const usage = `agentsync —— 跨 Agent 工具配置自动同步工具

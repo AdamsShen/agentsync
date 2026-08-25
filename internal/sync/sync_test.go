@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xmly/agentsync/internal/adapter"
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/adapter"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 // 用临时 HOME 做隔离测试（适配器走 os.UserHomeDir）

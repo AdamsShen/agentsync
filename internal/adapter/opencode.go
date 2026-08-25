@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 // OpenCode 适配器：opencode（skills 目录 ~/.config/opencode/skills/，MCP 为 opencode.json 的 mcp 键）

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 // Kind 复用 registry.Kind（skill / mcp / rules）

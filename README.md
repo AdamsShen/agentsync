@@ -14,13 +14,13 @@
 **方式一：一键脚本（推荐，无需 Go）**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/xmly/agentsync/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AdamsShen/agentsync/main/install.sh | bash
 ```
 
 **方式二：go install（需要 Go）**
 
 ```bash
-go install github.com/xmly/agentsync@latest
+go install github.com/AdamsShen/agentsync@latest
 ```
 
 安装后启动：

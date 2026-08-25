@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xmly/agentsync/internal/adapter"
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/adapter"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 // mockHandler 记录 OnRuleFile 回调的 Handler 实现

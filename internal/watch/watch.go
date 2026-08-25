@@ -11,8 +11,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/xmly/agentsync/internal/adapter"
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/adapter"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 // Handler 处理一个收敛/分发循环

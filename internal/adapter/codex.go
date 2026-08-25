@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 // Codex 适配器：OpenAI Codex（skills 目录 ~/.codex/skills/，MCP 为 config.toml TOML）

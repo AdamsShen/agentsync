@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 // Grok 适配器：Grok Build（xAI 的 grok-code-fast，CLI 名 grok）。

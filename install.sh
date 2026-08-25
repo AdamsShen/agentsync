@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # agentsync 一键安装脚本：下载对应平台的预编译二进制到 ~/.local/bin
-# 用法：curl -fsSL https://raw.githubusercontent.com/xmly/agentsync/main/install.sh | bash
+# 用法：curl -fsSL https://raw.githubusercontent.com/AdamsShen/agentsync/main/install.sh | bash
 set -euo pipefail
 
-REPO="xmly/agentsync"
+REPO="AdamsShen/agentsync"
 BIN="agentsync"
 INSTALL_DIR="${AGENTSYNC_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${AGENTSYNC_VERSION:-latest}"   # 默认 latest，可指定 v0.1.0
@@ -43,10 +43,17 @@ if ! printf '%s\n' "$PATH" | tr ':' '\n' | grep -qxF "$INSTALL_DIR"; then
   echo "    export PATH=\"$INSTALL_DIR:\$PATH\""
 fi
 
-# 5. 使用提示
+# 5. 注册开机自启（launchctl load 触发 RunAtLoad，daemon 立即启动）
+if "$INSTALL_DIR/$BIN" install 2>/dev/null; then
+  echo "✓ 已注册开机自启服务（daemon 已启动）"
+else
+  echo "⚠ 注册开机自启失败，可稍后手动执行：$BIN install"
+fi
+
+# 6. 使用提示
 echo
 echo "使用方式："
-echo "  agentsync daemon     # 启动守护进程（收敛 + 分发）"
-echo "  agentsync install    # 注册开机自启服务"
 echo "  agentsync status     # 查看检测到的 agent"
+echo "  agentsync list       # 查看已收敛的配置"
 echo "  agentsync tui        # 交互式状态面板"
+echo "  agentsync uninstall  # 移除开机自启服务"

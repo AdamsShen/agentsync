@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/xmly/agentsync/internal/adapter"
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/adapter"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 // CanonicalRoot 返回 canonical 根目录（绝对路径）

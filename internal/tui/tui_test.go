@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 func TestCounts(t *testing.T) {

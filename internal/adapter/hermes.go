@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 // Hermes 适配器：Hermes（本机实测，用户级 skills 目录为 ~/.hermes/skills/）

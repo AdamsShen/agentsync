@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 // Qoder 适配器：Qoder IDE（实测 skills 全软链、mcp.json 与 Claude 同构）

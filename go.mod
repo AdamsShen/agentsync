@@ -1,4 +1,4 @@
-module github.com/xmly/agentsync
+module github.com/AdamsShen/agentsync
 
 go 1.26.4
 

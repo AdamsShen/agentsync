@@ -7,13 +7,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/xmly/agentsync/internal/adapter"
-	"github.com/xmly/agentsync/internal/ask"
-	"github.com/xmly/agentsync/internal/mcpread"
-	"github.com/xmly/agentsync/internal/mcpsync"
-	"github.com/xmly/agentsync/internal/registry"
-	"github.com/xmly/agentsync/internal/sync"
-	"github.com/xmly/agentsync/internal/watch"
+	"github.com/AdamsShen/agentsync/internal/adapter"
+	"github.com/AdamsShen/agentsync/internal/ask"
+	"github.com/AdamsShen/agentsync/internal/mcpread"
+	"github.com/AdamsShen/agentsync/internal/mcpsync"
+	"github.com/AdamsShen/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/sync"
+	"github.com/AdamsShen/agentsync/internal/watch"
 )
 
 // debounce 事件合并窗口

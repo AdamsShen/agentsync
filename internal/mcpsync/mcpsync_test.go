@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xmly/agentsync/internal/mcpread"
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/mcpread"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 // withTempHome 用临时 HOME 隔离（各工具 MCP 路径走 os.UserHomeDir）

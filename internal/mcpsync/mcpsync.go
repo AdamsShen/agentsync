@@ -14,8 +14,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/xmly/agentsync/internal/mcpread"
-	"github.com/xmly/agentsync/internal/registry"
+	"github.com/AdamsShen/agentsync/internal/mcpread"
+	"github.com/AdamsShen/agentsync/internal/registry"
 )
 
 // McpAdapter 一个工具的 MCP 配置读写
