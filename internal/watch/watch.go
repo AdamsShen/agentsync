@@ -1,4 +1,4 @@
-// Package watch 守护进程的文件监听：多目录监听 + debounce + 收敛触发。
+// Package watch 守护进程的文件监听：多目录/多文件监听 + debounce + 按 kind 分发。
 package watch
 
 import (
@@ -17,22 +17,46 @@ import (
 
 // Handler 处理一个收敛/分发循环
 type Handler interface {
-	// OnNewSkill 工具目录出现新 skill（未收敛）
-	OnNewSkill(ctx context.Context, a adapter.Adapter, dir string) error
+	// OnSkill 工具 skills 目录出现新 skill 目录（未收敛）
+	OnSkill(ctx context.Context, a adapter.Adapter, dir string) error
+	// OnRules 工具 rules 目录出现新 rule 文件（未收敛）
+	OnRules(ctx context.Context, a adapter.Adapter, file string) error
+	// OnMcpChange 工具的 MCP 配置文件发生变化
+	OnMcpChange(ctx context.Context, a adapter.Adapter) error
 	// OnRescan 周期性重扫检测新 agent
 	OnRescan(ctx context.Context) error
 }
+
+type entry struct {
+	a    adapter.Adapter
+	spec adapter.WatchSpec
+}
+
+// Watcher 监听器：持有已监听路径 → 归属映射
 type Watcher struct {
 	reg      *registry.Registry
 	adapters []adapter.Adapter // 已检测适配器
 	handler  Handler
 	debounce time.Duration
-	fw       *fsnotify.Watcher // 动态接入用
+	rescan   time.Duration
+	fw       *fsnotify.Watcher
+	entries  map[string]entry // spec.Path → 归属
 }
 
-// New 创建监听器
+// New 创建监听器。rescan 间隔取自 registry（缺省 5 分钟）。
 func New(reg *registry.Registry, adapters []adapter.Adapter, h Handler, debounce time.Duration) *Watcher {
-	return &Watcher{reg: reg, adapters: adapters, handler: h, debounce: debounce}
+	rescan := time.Duration(reg.Defaults.RescanIntervalSec) * time.Second
+	if rescan <= 0 {
+		rescan = 5 * time.Minute
+	}
+	return &Watcher{
+		reg:      reg,
+		adapters: adapters,
+		handler:  h,
+		debounce: debounce,
+		rescan:   rescan,
+		entries:  map[string]entry{},
+	}
 }
 
 // Run 启动监听，阻塞直到 ctx 取消
@@ -44,35 +68,28 @@ func (w *Watcher) Run(ctx context.Context) error {
 	defer fw.Close()
 	w.fw = fw
 
-	// 注册所有已检测工具的 skills 目录
+	// 注册所有已检测工具的监听（skills/rules 目录 + MCP 文件）
 	for _, a := range w.adapters {
 		for _, spec := range a.WatchSpecs() {
-			if spec.Kind != registry.KindSkill {
-				continue // M0 只监听 skill
-			}
-			if err := ensureAndWatch(fw, spec.Path); err != nil {
+			if err := w.addSpec(fw, a, spec); err != nil {
 				log.Printf("[watch] 监听 %s 失败: %v", spec.Path, err)
 			}
 		}
 	}
 
-	// 周期重扫检测新 agent（间隔默认 5 分钟，可由调用方覆盖）
-	rescan := time.NewTicker(5 * time.Minute)
+	rescan := time.NewTicker(w.rescan)
 	defer rescan.Stop()
-
-	// debounce 队列：目录路径 -> 最后事件时间
-	var pending = map[string]time.Time{}
-	var pendingMu = make(chan struct{}, 1)
-
-	flush := func() {
-		for path := range pending {
-			delete(pending, path)
-			w.handleSkillDir(ctx, fw, path)
-		}
-	}
 
 	timer := time.NewTimer(w.debounce)
 	timer.Stop()
+	pending := map[string]bool{}
+
+	flush := func() {
+		for root := range pending {
+			delete(pending, root)
+			w.dispatch(ctx, fw, root)
+		}
+	}
 
 	for {
 		select {
@@ -80,14 +97,18 @@ func (w *Watcher) Run(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			// 只关心目录事件（Create/Write/Rename/Remove），且指向 skill 目录下
-			if !isSkillChild(ev.Name) {
+			root, ok := w.route(ev.Name)
+			if !ok {
 				continue
 			}
-			dir := filepath.Dir(ev.Name)
-			pendingMu <- struct{}{}
-			pending[dir] = time.Now()
-			<-pendingMu
+			pending[root] = true
+			// 排空旧定时，避免残留触发导致过早 flush
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 			timer.Reset(w.debounce)
 
 		case err, ok := <-fw.Errors:
@@ -110,13 +131,69 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 }
 
-// handleSkillDir 扫描目录，发现未收敛的新 skill
-func (w *Watcher) handleSkillDir(ctx context.Context, fw *fsnotify.Watcher, dir string) {
+// addSpec 注册一个监听（目录类 MkdirAll+Add，MCP 文件类确保存在+Add）
+func (w *Watcher) addSpec(fw *fsnotify.Watcher, a adapter.Adapter, spec adapter.WatchSpec) error {
+	if spec.Kind == registry.KindMCP {
+		if err := ensureMCPFile(spec.Path); err != nil {
+			return err
+		}
+		if err := fw.Add(spec.Path); err != nil {
+			return err
+		}
+		w.entries[spec.Path] = entry{a, spec}
+		return nil
+	}
+	if err := os.MkdirAll(spec.Path, 0o755); err != nil {
+		return err
+	}
+	if err := fw.Add(spec.Path); err != nil {
+		return err
+	}
+	w.entries[spec.Path] = entry{a, spec}
+	return nil
+}
+
+// route 由事件路径反查归属的 spec.Path（MCP 精确匹配，目录前缀匹配）
+func (w *Watcher) route(p string) (string, bool) {
+	if _, ok := w.entries[p]; ok {
+		return p, true
+	}
+	sep := string(filepath.Separator)
+	for root, e := range w.entries {
+		if e.spec.Kind == registry.KindMCP {
+			continue
+		}
+		if p == root || strings.HasPrefix(p, root+sep) {
+			return root, true
+		}
+	}
+	return "", false
+}
+
+// dispatch 按 kind 分发到 handler
+func (w *Watcher) dispatch(ctx context.Context, fw *fsnotify.Watcher, root string) {
+	e, ok := w.entries[root]
+	if !ok {
+		return
+	}
+	switch e.spec.Kind {
+	case registry.KindSkill:
+		w.scanSkillDir(ctx, fw, e.a, root)
+	case registry.KindRules:
+		w.scanRulesDir(ctx, fw, e.a, root)
+	case registry.KindMCP:
+		if w.handler != nil {
+			_ = w.handler.OnMcpChange(ctx, e.a)
+		}
+	}
+}
+
+// scanSkillDir 扫描 skills 目录，发现未收敛的新 skill
+func (w *Watcher) scanSkillDir(ctx context.Context, fw *fsnotify.Watcher, a adapter.Adapter, dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// 目录被删，重建监听（如工具重装）
-			_ = ensureAndWatch(fw, dir)
+			_ = ensureAndWatch(fw, dir) // 目录被删，重建监听
 		}
 		return
 	}
@@ -125,47 +202,66 @@ func (w *Watcher) handleSkillDir(ctx context.Context, fw *fsnotify.Watcher, dir 
 			continue
 		}
 		p := filepath.Join(dir, e.Name())
-		a := w.adapterForDir(dir)
-		if a == nil {
-			continue
-		}
-		// 已收敛且 owned → 跳过
 		if w.reg.GetItem("skill:"+e.Name()) != nil {
-			continue
+			continue // 已收敛
 		}
-		// 是软链且指向 canonical → 我方投影，跳过
 		if owned, _ := a.IsOwnedProjection(ctx, p); owned {
-			continue
+			continue // 我方投影软链
 		}
-		// 有 SKILL.md 才是 skill
 		if !a.HasSKILL(p) {
 			continue
 		}
-		// 新 skill → 交给 handler 收敛
 		if w.handler != nil {
-			if err := w.handler.OnNewSkill(ctx, a, p); err != nil {
-				log.Printf("[watch] 收敛 %s 失败: %v", p, err)
+			if err := w.handler.OnSkill(ctx, a, p); err != nil {
+				log.Printf("[watch] 收敛 skill %s 失败: %v", p, err)
 			}
 		}
 	}
 }
 
-// adapterForDir 由目录路径反查所属适配器
-func (w *Watcher) adapterForDir(dir string) adapter.Adapter {
-	for _, a := range w.adapters {
-		for _, spec := range a.WatchSpecs() {
-			if spec.Path == dir {
-				return a
+// scanRulesDir 扫描 rules 目录，发现未收敛的新 rule 文件
+func (w *Watcher) scanRulesDir(ctx context.Context, fw *fsnotify.Watcher, a adapter.Adapter, dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			_ = ensureAndWatch(fw, dir)
+		}
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || !isRuleFile(e.Name()) {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if w.reg.GetItem("rules:"+e.Name()) != nil {
+			continue
+		}
+		if owned, _ := a.IsOwnedProjection(ctx, p); owned {
+			continue
+		}
+		if w.handler != nil {
+			if err := w.handler.OnRules(ctx, a, p); err != nil {
+				log.Printf("[watch] 收敛 rule %s 失败: %v", p, err)
 			}
 		}
+	}
+}
+
+// isRuleFile 判断文件名是否为 rule 文件（.md / .mdc）
+func isRuleFile(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	return ext == ".md" || ext == ".mdc"
+}
+
+// ensureMCPFile 确保 MCP 文件存在（不存在则写空 {}，便于监听）
+func ensureMCPFile(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return os.WriteFile(path, []byte("{}\n"), 0o600)
 	}
 	return nil
-}
-
-func isSkillChild(p string) bool {
-	// 路径含 <某工具>/skills/ 即视为 skill 子路径
-	return strings.Contains(p, string(filepath.Separator)+"skills"+string(filepath.Separator)) ||
-		filepath.Base(filepath.Dir(p)) == "skills"
 }
 
 // ensureAndWatch 目录不存在则创建，然后加入监听
@@ -178,7 +274,6 @@ func ensureAndWatch(fw *fsnotify.Watcher, dir string) error {
 
 // AddAdapter 动态加入一个已检测适配器的监听（新 agent 接入）
 func (w *Watcher) AddAdapter(a adapter.Adapter) {
-	// 先检查是否已在集合
 	for _, e := range w.adapters {
 		if e.Name() == a.Name() {
 			return
@@ -186,12 +281,10 @@ func (w *Watcher) AddAdapter(a adapter.Adapter) {
 	}
 	w.adapters = append(w.adapters, a)
 	for _, spec := range a.WatchSpecs() {
-		if spec.Kind == registry.KindSkill {
-			_ = ensureAndWatch(w.fw, spec.Path)
+		if err := w.addSpec(w.fw, a, spec); err != nil {
+			log.Printf("[watch] 新监听 %s 失败: %v", spec.Path, err)
+		} else {
 			log.Printf("[watch] 新监听: %s", spec.Path)
 		}
 	}
 }
-
-// Adapters 返回当前适配器集合（供 Handler 读取）
-func (w *Watcher) Adapters() []adapter.Adapter { return w.adapters }

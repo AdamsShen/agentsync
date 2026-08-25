@@ -43,8 +43,12 @@ type Adapter interface {
 
 	// Project 出站：把 canonical 分发到本工具
 	ProjectSkill(ctx context.Context, canonicalPath, name string) error
+	ProjectRule(ctx context.Context, canonicalPath, name string) error
 	RemoveProjection(ctx context.Context, kind Kind, name string) error
 	IsOwnedProjection(ctx context.Context, path string) (bool, error)
+
+	// RulesDir 返回本工具 rules 目录（不支持 rules 返回 ""）
+	RulesDir() string
 }
 
 // homeDir 统一取用户主目录（跨平台）

@@ -9,6 +9,8 @@ import (
 
 	"github.com/xmly/agentsync/internal/adapter"
 	"github.com/xmly/agentsync/internal/ask"
+	"github.com/xmly/agentsync/internal/mcpread"
+	"github.com/xmly/agentsync/internal/mcpsync"
 	"github.com/xmly/agentsync/internal/registry"
 	"github.com/xmly/agentsync/internal/sync"
 	"github.com/xmly/agentsync/internal/watch"
@@ -27,8 +29,8 @@ type Handler struct {
 // SetWatcher 注入监听器（供动态接入）
 func (h *Handler) SetWatcher(w *watch.Watcher) { h.W = w }
 
-// OnNewSkill 工具目录出现新 skill：收敛 → 原副本换软链 → 询问 → 分发
-func (h *Handler) OnNewSkill(ctx context.Context, a adapter.Adapter, dir string) error {
+// OnSkill 工具目录出现新 skill：收敛 → 原副本换软链 → 询问 → 分发
+func (h *Handler) OnSkill(ctx context.Context, a adapter.Adapter, dir string) error {
 	log.Printf("[daemon] 检测到新 skill: %s (来源: %s)", dir, a.Name())
 
 	// 1. 收敛到 canonical
@@ -45,19 +47,17 @@ func (h *Handler) OnNewSkill(ctx context.Context, a adapter.Adapter, dir string)
 
 	// 3. 询问分发目标（只列已检测且支持 skill 的工具；源工具已在步骤2处理）
 	candidates := []string{}
-	defaults := []string{}
 	for _, ad := range h.Adapters {
 		if ad.Name() == a.Name() {
 			continue
 		}
 		if ad.KindSupported(registry.KindSkill) {
 			candidates = append(candidates, ad.Name())
-			defaults = append(defaults, ad.Name())
 		}
 	}
 	targets, err := ask.MultiSelect(
 		"检测到以下工具支持 skill，同步到哪些？（空回车=全部）",
-		candidates, defaults)
+		candidates, candidates)
 	if err != nil {
 		return err
 	}
@@ -76,6 +76,124 @@ func (h *Handler) OnNewSkill(ctx context.Context, a adapter.Adapter, dir string)
 	}
 	it.ProjectedTo = targets
 	h.Reg.UpsertItem(it)
+	_ = h.Reg.Save()
+	return nil
+}
+
+// OnRules 工具 rules 目录出现新 rule 文件：收敛 → 原副本换软链 → 询问 → 分发
+func (h *Handler) OnRules(ctx context.Context, a adapter.Adapter, file string) error {
+	log.Printf("[daemon] 检测到新 rule: %s (来源: %s)", file, a.Name())
+
+	it, err := sync.IngestRule(ctx, h.Reg, a, file)
+	if err != nil {
+		return err
+	}
+	log.Printf("[daemon] 已收敛 rule 到 %s", it.Canonical)
+
+	// 原工具副本替换为软链
+	if err := sync.ReplaceWithSymlink(ctx, a, file, it); err != nil {
+		log.Printf("[daemon] 替换源 rule 为软链失败: %v", err)
+	}
+
+	// 询问分发目标（只列已检测、支持 rules 且声明了 rules 目录的工具）
+	candidates := []string{}
+	for _, ad := range h.Adapters {
+		if ad.Name() == a.Name() {
+			continue
+		}
+		if ad.RulesDir() != "" && ad.KindSupported(registry.KindRules) {
+			candidates = append(candidates, ad.Name())
+		}
+	}
+	it.ProjectedTo = []string{}
+	if len(candidates) > 0 {
+		targets, err := ask.MultiSelect(
+			"检测到以下工具支持 rules，同步到哪些？（空回车=全部）",
+			candidates, candidates)
+		if err != nil {
+			return err
+		}
+		for _, ad := range h.Adapters {
+			for _, t := range targets {
+				if ad.Name() == t {
+					if err := sync.ProjectRule(ctx, ad, it); err != nil {
+						log.Printf("[daemon] 分发 rule 到 %s 失败: %v", ad.Name(), err)
+					} else {
+						log.Printf("[daemon] 已分发 rule 到 %s", ad.Name())
+					}
+				}
+			}
+		}
+		it.ProjectedTo = targets
+	}
+	h.Reg.UpsertItem(it)
+	_ = h.Reg.Save()
+	return nil
+}
+
+// OnMcpChange 工具 MCP 配置文件变化：读文件 → 对比 registry → 收敛 → 询问 → 分发
+func (h *Handler) OnMcpChange(ctx context.Context, a adapter.Adapter) error {
+	ma, ok := mcpsync.AdapterByName(a.Name())
+	if !ok {
+		return nil // 该工具无 MCP 适配器
+	}
+	f, err := mcpread.Read(ma.McpFile(), ma.Format(), ma.ServersKey())
+	if err != nil {
+		return err
+	}
+	diff := mcpsync.DetectDiff(f, h.Reg, a.Name())
+
+	if len(diff.Removed) > 0 {
+		// 外部删除：删除-询问流后续里程碑处理，先记录
+		log.Printf("[daemon] MCP 外部删除 %s: %v（待后续处理）", a.Name(), diff.Removed)
+	}
+	if len(diff.Added) == 0 && len(diff.Changed) == 0 {
+		return nil
+	}
+
+	// 收敛新增/变更 server 进 registry（Origin=来源工具）
+	synced, err := mcpsync.SyncFromTool(ctx, h.Reg, a.Name(), f)
+	if err != nil {
+		return err
+	}
+	if len(synced) == 0 {
+		return nil
+	}
+	log.Printf("[daemon] MCP 收敛 %d 个 server: %v（来源: %s）", len(synced), synced, a.Name())
+
+	// 询问分发目标（其他支持 MCP 且具备配置适配器的工具）
+	candidates := []string{}
+	for _, ad := range h.Adapters {
+		if ad.Name() == a.Name() || !ad.KindSupported(registry.KindMCP) {
+			continue
+		}
+		if _, ok := mcpsync.AdapterByName(ad.Name()); ok {
+			candidates = append(candidates, ad.Name())
+		}
+	}
+	if len(candidates) > 0 {
+		targets, err := ask.MultiSelect(
+			"检测到以下工具支持 MCP，同步到哪些？（空回车=全部）",
+			candidates, candidates)
+		if err != nil {
+			return err
+		}
+		for _, t := range targets {
+			ma2, _ := mcpsync.AdapterByName(t)
+			if err := mcpsync.ProjectTo(h.Reg, ma2, synced); err != nil {
+				log.Printf("[daemon] MCP 分发到 %s 失败: %v", t, err)
+			} else {
+				log.Printf("[daemon] MCP 已分发到 %s", t)
+			}
+		}
+		// 记录 projected_to
+		for _, name := range synced {
+			if it := h.Reg.GetItem("mcp:" + name); it != nil {
+				it.ProjectedTo = targets
+				h.Reg.UpsertItem(it)
+			}
+		}
+	}
 	_ = h.Reg.Save()
 	return nil
 }

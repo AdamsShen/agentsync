@@ -37,10 +37,14 @@ func (OpenCode) WatchSpecs() []WatchSpec {
 			Tool:    "opencode",
 			Recurse: true,
 		},
+		mcpWatch("opencode", join(homeDir(), ".config", "opencode", "opencode.json")),
 	}
 }
 
 func (OpenCode) SkillsDir() string { return join(homeDir(), ".config", "opencode", "skills") }
+
+// RulesDir opencode 走 AGENTS.md 单文件约定，无 rules 目录
+func (OpenCode) RulesDir() string { return "" }
 
 func (OpenCode) HasSKILL(dir string) bool {
 	_, err := os.Stat(join(dir, "SKILL.md"))
@@ -55,11 +59,13 @@ func (o OpenCode) ProjectSkill(_ context.Context, canonicalPath, name string) er
 	return symlinkDir(canonicalPath, join(o.SkillsDir(), name))
 }
 
-func (OpenCode) RemoveProjection(_ context.Context, kind Kind, name string) error {
-	if kind != registry.KindSkill {
-		return nil
-	}
-	return removeSymlinkOnly(join(homeDir(), ".config", "opencode", "skills", name))
+// ProjectRule opencode 无 rules 目录，空操作
+func (o OpenCode) ProjectRule(_ context.Context, canonicalPath, name string) error {
+	return projectRule(o.RulesDir(), canonicalPath, name)
+}
+
+func (o OpenCode) RemoveProjection(_ context.Context, kind Kind, name string) error {
+	return removeProjection(kind, name, o.SkillsDir(), o.RulesDir())
 }
 
 func (o OpenCode) IsOwnedProjection(_ context.Context, path string) (bool, error) {

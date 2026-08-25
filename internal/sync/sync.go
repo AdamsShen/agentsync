@@ -29,10 +29,10 @@ type Ask func(ctx context.Context, q AskQuestion) ([]string, error)
 
 // AskQuestion 一次询问的上下文
 type AskQuestion struct {
-	Kind     registry.Kind
-	Name     string
-	Origin   string
-	Default  []string // 默认勾选（已检测且支持该 kind 的工具）
+	Kind       registry.Kind
+	Name       string
+	Origin     string
+	Default    []string // 默认勾选（已检测且支持该 kind 的工具）
 	Candidates []string
 }
 
@@ -67,16 +67,28 @@ func ProjectSkill(ctx context.Context, a adapter.Adapter, it *registry.Item) err
 	return a.ProjectSkill(ctx, it.Canonical, name)
 }
 
-// ReplaceWithSymlink 把工具目录里的实体副本替换为指向 canonical 的软链。
-func ReplaceWithSymlink(ctx context.Context, a adapter.Adapter, toolDir string, it *registry.Item) error {
-	if a.SupportsSymlink() {
-		// 删除实体，建软链
-		if err := os.RemoveAll(toolDir); err != nil {
-			return err
-		}
-		return a.ProjectSkill(ctx, it.Canonical, filepath.Base(it.Canonical))
+// ProjectRule 把 rule item 分发到指定工具（软链）。
+func ProjectRule(ctx context.Context, a adapter.Adapter, it *registry.Item) error {
+	name := filepath.Base(it.Canonical)
+	return a.ProjectRule(ctx, it.Canonical, name)
+}
+
+// ReplaceWithSymlink 把工具目录里的实体副本替换为指向 canonical 的软链（dir 或 file）。
+func ReplaceWithSymlink(ctx context.Context, a adapter.Adapter, toolPath string, it *registry.Item) error {
+	if !a.SupportsSymlink() {
+		return nil // 不支持软链的工具保留实体副本
 	}
-	return nil // 不支持软链的工具保留实体副本
+	name := filepath.Base(it.Canonical)
+	if err := os.RemoveAll(toolPath); err != nil {
+		return err
+	}
+	switch it.Kind {
+	case registry.KindSkill:
+		return a.ProjectSkill(ctx, it.Canonical, name)
+	case registry.KindRules:
+		return a.ProjectRule(ctx, it.Canonical, name)
+	}
+	return nil
 }
 
 // RemoveProjections 清理 item 在指定工具的投影（软链）
@@ -91,6 +103,43 @@ func RemoveProjections(ctx context.Context, reg *registry.Registry, adapters []a
 		}
 	}
 	return nil
+}
+
+// IngestRule 把工具目录里的一个 rule 文件收敛到 canonical（~/.agents/rules/）。
+// 保留源文件名（含扩展名，.md/.mdc 不做归一化，待 M4.5）。
+func IngestRule(ctx context.Context, reg *registry.Registry, a adapter.Adapter, file string) (*registry.Item, error) {
+	name := filepath.Base(file)
+	dest := filepath.Join(RulesRoot(), name)
+
+	if err := os.MkdirAll(RulesRoot(), 0o755); err != nil {
+		return nil, err
+	}
+	if err := copyFile(file, dest); err != nil {
+		return nil, fmt.Errorf("复制 rule 到 canonical 失败: %w", err)
+	}
+
+	it := &registry.Item{
+		ID:        "rules:" + name,
+		Kind:      registry.KindRules,
+		Canonical: dest,
+		Origin:    a.Name(),
+		CreatedAt: time.Now(),
+	}
+	reg.UpsertItem(it)
+	return it, nil
+}
+
+// copyFile 复制单个文件（跟随软链，拷贝实体内容）
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, info.Mode().Perm())
 }
 
 // --- 复制目录工具函数 ---

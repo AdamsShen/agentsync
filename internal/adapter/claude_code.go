@@ -38,11 +38,16 @@ func (ClaudeCode) WatchSpecs() []WatchSpec {
 			Tool:    "claude-code",
 			Recurse: true,
 		},
+		ruleWatch("claude-code", join(homeDir(), ".claude", "rules")),
+		mcpWatch("claude-code", join(homeDir(), ".claude.json")),
 	}
 }
 
 // SkillsDir 本工具 skill 目录
 func (ClaudeCode) SkillsDir() string { return join(homeDir(), ".claude", "skills") }
+
+// RulesDir 本工具 rules 目录
+func (ClaudeCode) RulesDir() string { return join(homeDir(), ".claude", "rules") }
 
 func (ClaudeCode) HasSKILL(dir string) bool {
 	_, err := os.Stat(join(dir, "SKILL.md"))
@@ -58,11 +63,13 @@ func (c ClaudeCode) ProjectSkill(_ context.Context, canonicalPath, name string) 
 	return symlinkDir(canonicalPath, join(c.SkillsDir(), name))
 }
 
-func (ClaudeCode) RemoveProjection(_ context.Context, kind Kind, name string) error {
-	if kind != registry.KindSkill {
-		return nil
-	}
-	return removeSymlinkOnly(join(homeDir(), ".claude", "skills", name))
+// ProjectRule 在 ~/.claude/rules/ 建软链指向 canonical
+func (c ClaudeCode) ProjectRule(_ context.Context, canonicalPath, name string) error {
+	return symlinkDir(canonicalPath, join(c.RulesDir(), name))
+}
+
+func (c ClaudeCode) RemoveProjection(_ context.Context, kind Kind, name string) error {
+	return removeProjection(kind, name, c.SkillsDir(), c.RulesDir())
 }
 
 func (c ClaudeCode) IsOwnedProjection(_ context.Context, path string) (bool, error) {
@@ -103,4 +110,36 @@ func removeSymlinkOnly(p string) error {
 		return os.Remove(p)
 	}
 	return nil // 实体目录不动（可能是用户手动建的）
+}
+
+// removeProjection 按 kind 移除某工具对 name 的投影（skill/rules 软链）
+func removeProjection(kind Kind, name, skillsDir, rulesDir string) error {
+	switch kind {
+	case registry.KindSkill:
+		return removeSymlinkOnly(join(skillsDir, name))
+	case registry.KindRules:
+		if rulesDir == "" {
+			return nil
+		}
+		return removeSymlinkOnly(join(rulesDir, name))
+	}
+	return nil
+}
+
+// projectRule 软链 rule 到 rulesDir（该工具不支持 rules 时为空操作）
+func projectRule(rulesDir, canonicalPath, name string) error {
+	if rulesDir == "" {
+		return nil
+	}
+	return symlinkDir(canonicalPath, join(rulesDir, name))
+}
+
+// ruleWatch 生成某工具的 rules 目录监听 spec
+func ruleWatch(tool, dir string) WatchSpec {
+	return WatchSpec{Path: dir, Kind: registry.KindRules, Tool: tool, Recurse: true}
+}
+
+// mcpWatch 生成某工具的 MCP 文件监听 spec
+func mcpWatch(tool, path string) WatchSpec {
+	return WatchSpec{Path: path, Kind: registry.KindMCP, Tool: tool}
 }

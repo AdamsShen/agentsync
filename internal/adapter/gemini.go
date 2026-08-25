@@ -42,6 +42,9 @@ func (Gemini) WatchSpecs() []WatchSpec {
 
 func (Gemini) SkillsDir() string { return join(homeDir(), ".gemini", "skills") }
 
+// RulesDir gemini rules 目录待实测，暂不启用
+func (Gemini) RulesDir() string { return "" }
+
 func (Gemini) HasSKILL(dir string) bool {
 	_, err := os.Stat(join(dir, "SKILL.md"))
 	return err == nil
@@ -55,11 +58,13 @@ func (g Gemini) ProjectSkill(_ context.Context, canonicalPath, name string) erro
 	return symlinkDir(canonicalPath, join(g.SkillsDir(), name))
 }
 
-func (Gemini) RemoveProjection(_ context.Context, kind Kind, name string) error {
-	if kind != registry.KindSkill {
-		return nil
-	}
-	return removeSymlinkOnly(join(homeDir(), ".gemini", "skills", name))
+// ProjectRule gemini 无 rules 目录，空操作
+func (g Gemini) ProjectRule(_ context.Context, canonicalPath, name string) error {
+	return projectRule(g.RulesDir(), canonicalPath, name)
+}
+
+func (g Gemini) RemoveProjection(_ context.Context, kind Kind, name string) error {
+	return removeProjection(kind, name, g.SkillsDir(), g.RulesDir())
 }
 
 func (g Gemini) IsOwnedProjection(_ context.Context, path string) (bool, error) {

@@ -19,14 +19,14 @@ const (
 
 // Item 一条已收敛配置的记录（registry 中的事实源）
 type Item struct {
-	ID          string            `json:"id"`                      // 形如 "skill:foo"
-	Kind        Kind              `json:"kind"`                    // skill | mcp | rules
-	Canonical   string            `json:"canonical,omitempty"`     // 统一副本绝对路径（skill/rules）
-	Origin      string            `json:"origin"`                  // 来自哪个工具
-	ProjectedTo []string          `json:"projected_to,omitempty"`  // 分发到了哪些工具
-	Config      map[string]any    `json:"config,omitempty"`        // MCP 等结构化定义
-	LastHash    string            `json:"last_hash,omitempty"`     // 出站写入后的内容指纹（防循环）
-	Ignore      map[string]bool   `json:"ignore,omitempty"`        // 按工具忽略（key=工具名）
+	ID          string            `json:"id"`                     // 形如 "skill:foo"
+	Kind        Kind              `json:"kind"`                   // skill | mcp | rules
+	Canonical   string            `json:"canonical,omitempty"`    // 统一副本绝对路径（skill/rules）
+	Origin      string            `json:"origin"`                 // 来自哪个工具
+	ProjectedTo []string          `json:"projected_to,omitempty"` // 分发到了哪些工具
+	Config      map[string]any    `json:"config,omitempty"`       // MCP 等结构化定义
+	LastHash    string            `json:"last_hash,omitempty"`    // 出站写入后的内容指纹（防循环）
+	Ignore      map[string]bool   `json:"ignore,omitempty"`       // 按工具忽略（key=工具名）
 	CreatedAt   time.Time         `json:"created_at"`
 	Meta        map[string]string `json:"meta,omitempty"`
 }
@@ -44,12 +44,12 @@ type ToolState struct {
 
 // Config 全局默认策略
 type Config struct {
-	AskOnConflict      bool   `json:"ask_on_conflict"`
-	AskOnExternal      bool   `json:"ask_on_external_change"`
-	AskOnPropagate     bool   `json:"ask_on_propagate"`
-	DebounceMS         int    `json:"debounce_ms"`
-	NoTTYPolicy        string `json:"no_tty_policy"` // log | ignore | apply_default
-	RescanIntervalSec  int    `json:"rescan_interval_sec"`
+	AskOnConflict     bool   `json:"ask_on_conflict"`
+	AskOnExternal     bool   `json:"ask_on_external_change"`
+	AskOnPropagate    bool   `json:"ask_on_propagate"`
+	DebounceMS        int    `json:"debounce_ms"`
+	NoTTYPolicy       string `json:"no_tty_policy"` // log | ignore | apply_default
+	RescanIntervalSec int    `json:"rescan_interval_sec"`
 }
 
 // Registry 状态库

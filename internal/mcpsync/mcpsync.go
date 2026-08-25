@@ -1,5 +1,7 @@
 // Package mcpsync MCP 跨工具同步：读取各工具配置 → 合并 registry → 写回。
-// M1：claude-code / cursor / qoder 为 JSON 同构；hermes 为 YAML（暂延 M1.5）。
+//
+// 多工具多格式：claude-code/cursor/qoder 为 JSON(mcpServers)，
+// codex 为 TOML(mcp_servers)，opencode 为 JSON(mcp)，hermes 为 YAML(mcp_servers，待实测)。
 package mcpsync
 
 import (
@@ -16,30 +18,53 @@ import (
 	"github.com/xmly/agentsync/internal/registry"
 )
 
-// McpAdapter 一个工具的 MCP 配置读写（JSON 同构族）
+// McpAdapter 一个工具的 MCP 配置读写
 type McpAdapter interface {
 	Name() string
-	McpFile() string // 配置文件路径（不存在则视为空）
+	McpFile() string        // 配置文件路径（不存在则视为空）
+	Format() mcpread.Format // json / toml / yaml
+	ServersKey() string     // servers 所在顶层键名
 }
 
-// JSON 同构族实现
-type jsonMcp struct{ name, path string }
+// mcpCfg 通用实现
+type mcpCfg struct {
+	name, path string
+	format     mcpread.Format
+	key        string
+}
 
-func (j jsonMcp) Name() string    { return j.name }
-func (j jsonMcp) McpFile() string { return j.path }
+func (m mcpCfg) Name() string           { return m.name }
+func (m mcpCfg) McpFile() string        { return m.path }
+func (m mcpCfg) Format() mcpread.Format { return m.format }
+func (m mcpCfg) ServersKey() string     { return m.key }
 
-// 各工具 MCP 文件位置
-func claudeMcpFile() string { h, _ := os.UserHomeDir(); return filepath.Join(h, ".claude.json") }
-func cursorMcpFile() string { h, _ := os.UserHomeDir(); return filepath.Join(h, ".cursor", "mcp.json") }
-func qoderMcpFile() string  { h, _ := os.UserHomeDir(); return filepath.Join(h, ".qoder", "mcp.json") }
-
-// adapters 已支持 MCP 的工具（JSON 同构）
-func adapters() []McpAdapter {
+// Adapters 已支持 MCP 的全部工具（按格式+键名区分）
+func Adapters() []McpAdapter {
+	h, _ := os.UserHomeDir()
 	return []McpAdapter{
-		jsonMcp{name: "claude-code", path: claudeMcpFile()},
-		jsonMcp{name: "cursor", path: cursorMcpFile()},
-		jsonMcp{name: "qoder", path: qoderMcpFile()},
+		mcpCfg{"claude-code", filepath.Join(h, ".claude.json"), mcpread.FormatJSON, "mcpServers"},
+		mcpCfg{"cursor", filepath.Join(h, ".cursor", "mcp.json"), mcpread.FormatJSON, "mcpServers"},
+		mcpCfg{"qoder", filepath.Join(h, ".qoder", "mcp.json"), mcpread.FormatJSON, "mcpServers"},
+		mcpCfg{"codex", filepath.Join(h, ".codex", "config.toml"), mcpread.FormatTOML, "mcp_servers"},
+		mcpCfg{"opencode", filepath.Join(h, ".config", "opencode", "opencode.json"), mcpread.FormatJSON, "mcp"},
+		// hermes config.yaml 的 mcp 键名待实测；先用 mcp_servers 占位
+		mcpCfg{"hermes", filepath.Join(h, ".hermes", "config.yaml"), mcpread.FormatYAML, "mcp_servers"},
 	}
+}
+
+// AdapterByName 按名字取 MCP 适配器
+func AdapterByName(name string) (McpAdapter, bool) {
+	for _, a := range Adapters() {
+		if a.Name() == name {
+			return a, true
+		}
+	}
+	return nil, false
+}
+
+// readFile 读取某工具 MCP 配置（不存在返回空配置）
+func readFile(a McpAdapter) (*mcpread.File, error) {
+	return mcpread.Read(a.McpFile(), a.Format(), a.ServersKey())
 }
 
 // Diff 检测某工具配置相对 registry 的新增/变更 server
@@ -61,13 +86,11 @@ func DetectDiff(f *mcpread.File, reg *registry.Registry, origin string) Diff {
 		if it.Origin != origin {
 			continue // 别处收敛的，不重复收敛
 		}
-		// 对比内容：config 哈希
 		cur := hashServer(f.Servers[name])
 		if it.LastHash != "" && it.LastHash != cur {
 			d.Changed = append(d.Changed, name)
 		}
 	}
-	// removed：registry 里有该 origin 的 mcp，但工具文件里没了
 	for _, it := range reg.Items {
 		if it.Kind != registry.KindMCP || it.Origin != origin {
 			continue
@@ -83,10 +106,9 @@ func DetectDiff(f *mcpread.File, reg *registry.Registry, origin string) Diff {
 	return d
 }
 
-// SyncFromTool 某工具配置变化时：收敛新/变 server 进 registry → 写回其他工具。
-// origin 是变化的来源工具；targets 是要写回的工具（不含 origin，除非显式）。
+// SyncFromTool 某工具配置变化时：收敛新/变 server 进 registry。
+// origin 是变化来源工具；返回本次收敛的 server 名。
 func SyncFromTool(ctx context.Context, reg *registry.Registry, origin string, f *mcpread.File) ([]string, error) {
-	// 1. 收敛新增/变更 server 进 registry
 	diff := DetectDiff(f, reg, origin)
 	var synced []string
 	for _, name := range diff.Added {
@@ -94,7 +116,7 @@ func SyncFromTool(ctx context.Context, reg *registry.Registry, origin string, f 
 			ID:        "mcp:" + name,
 			Kind:      registry.KindMCP,
 			Origin:    origin,
-			Config:    serverToMap(f.Servers[name]),
+			Config:    f.Servers[name],
 			LastHash:  hashServer(f.Servers[name]),
 			CreatedAt: time.Now(),
 		}
@@ -103,7 +125,7 @@ func SyncFromTool(ctx context.Context, reg *registry.Registry, origin string, f 
 	}
 	for _, name := range diff.Changed {
 		if it := reg.GetItem("mcp:" + name); it != nil {
-			it.Config = serverToMap(f.Servers[name])
+			it.Config = f.Servers[name]
 			it.LastHash = hashServer(f.Servers[name])
 			reg.UpsertItem(it)
 			synced = append(synced, name)
@@ -117,7 +139,7 @@ func SyncFromTool(ctx context.Context, reg *registry.Registry, origin string, f 
 
 // ProjectTo 把 registry 里的 mcp server 写回某工具配置。
 func ProjectTo(reg *registry.Registry, a McpAdapter, names []string) error {
-	f, err := mcpread.ReadJSON(a.McpFile())
+	f, err := readFile(a)
 	if err != nil {
 		return err
 	}
@@ -126,70 +148,24 @@ func ProjectTo(reg *registry.Registry, a McpAdapter, names []string) error {
 		if it == nil || it.Kind != registry.KindMCP {
 			continue
 		}
-		srv, ok := mapToServer(it.Config)
-		if !ok {
-			continue
-		}
-		// 写回（覆盖该 server 定义，保留其他）
-		f.Servers[name] = srv
+		f.Servers[name] = it.Config
 	}
-	return f.WriteJSON()
+	return f.Write()
 }
 
 // RemoveFromTool 从工具配置移除某 server
 func RemoveFromTool(reg *registry.Registry, a McpAdapter, name string) error {
-	f, err := mcpread.ReadJSON(a.McpFile())
+	f, err := readFile(a)
 	if err != nil {
 		return err
 	}
 	delete(f.Servers, name)
-	return f.WriteJSON()
+	return f.Write()
 }
 
-// hashServer 计算 server 定义的稳定哈希（json 序列化）
-func hashServer(s mcpread.Server) string {
-	b, _ := jsonMarshal(s)
-	return fmt.Sprintf("%x", sha256Sum(b))
+// hashServer 计算 server 定义的稳定哈希（json 序列化原始 map）
+func hashServer(m map[string]any) string {
+	b, _ := json.Marshal(m)
+	s := sha256.Sum256(b)
+	return fmt.Sprintf("%x", s[:])
 }
-
-func serverToMap(s mcpread.Server) map[string]any {
-	m := map[string]any{}
-	if s.Type != "" {
-		m["type"] = s.Type
-	}
-	if s.URL != "" {
-		m["url"] = s.URL
-	}
-	if s.Command != "" {
-		m["command"] = s.Command
-	}
-	if len(s.Args) > 0 {
-		m["args"] = s.Args
-	}
-	if len(s.Env) > 0 {
-		m["env"] = s.Env
-	}
-	if len(s.Headers) > 0 {
-		m["headers"] = s.Headers
-	}
-	return m
-}
-
-func mapToServer(m map[string]any) (mcpread.Server, bool) {
-	var s mcpread.Server
-	b, err := jsonMarshal(m)
-	if err != nil {
-		return s, false
-	}
-	if err := jsonUnmarshal(b, &s); err != nil {
-		return s, false
-	}
-	return s, true
-}
-
-// 隔离 json/sha 便于测试与替换
-var (
-	jsonMarshal   = func(v any) ([]byte, error) { return json.Marshal(v) }
-	jsonUnmarshal = func(b []byte, v any) error { return json.Unmarshal(b, v) }
-	sha256Sum     = func(b []byte) []byte { s := sha256.Sum256(b); return s[:] }
-)

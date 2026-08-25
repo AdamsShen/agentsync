@@ -10,12 +10,11 @@ import (
 	"github.com/xmly/agentsync/internal/registry"
 )
 
-// 用临时 HOME 隔离（各工具 MCP 路径走 os.UserHomeDir）
+// withTempHome 用临时 HOME 隔离（各工具 MCP 路径走 os.UserHomeDir）
 func withTempHome(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	// 预建 cursor/qoder 目录
-	for _, d := range []string{".cursor", ".qoder"} {
+	for _, d := range []string{".cursor", ".qoder", ".codex"} {
 		if err := os.MkdirAll(filepath.Join(os.Getenv("HOME"), d), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -32,12 +31,15 @@ func writeCursorMcp(t *testing.T, content string) {
 	os.WriteFile(filepath.Join(os.Getenv("HOME"), ".cursor", "mcp.json"), []byte(content), 0o600)
 }
 
+func jsonMcp(name, path string) McpAdapter {
+	return mcpCfg{name: name, path: path, format: mcpread.FormatJSON, key: "mcpServers"}
+}
+
 func TestSyncFromTool_AddsToRegistry(t *testing.T) {
 	withTempHome(t)
 	reg := &registry.Registry{Items: []*registry.Item{}, Tools: map[string]registry.ToolState{}}
 	ctx := context.Background()
 
-	// cursor 配置出现新 server
 	writeCursorMcp(t, `{"mcpServers": {"github": {"command": "npx", "args": ["-y", "x"]}}}`)
 	f, err := mcpread.ReadJSON(filepath.Join(os.Getenv("HOME"), ".cursor", "mcp.json"))
 	if err != nil {
@@ -61,7 +63,6 @@ func TestProjectTo_WritesOtherTools(t *testing.T) {
 	reg := &registry.Registry{Items: []*registry.Item{}, Tools: map[string]registry.ToolState{}}
 	ctx := context.Background()
 
-	// 先在 claude 配置加 server，收敛进 registry
 	writeClaudeMcp(t, `{"mcpServers": {"db": {"command": "uv", "args": ["run", "db.py"], "env": {"DB": "x"}}}}`)
 	f, err := mcpread.ReadJSON(filepath.Join(os.Getenv("HOME"), ".claude.json"))
 	if err != nil {
@@ -71,8 +72,7 @@ func TestProjectTo_WritesOtherTools(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 写回 cursor
-	cursor := jsonMcp{name: "cursor", path: filepath.Join(os.Getenv("HOME"), ".cursor", "mcp.json")}
+	cursor := jsonMcp("cursor", filepath.Join(os.Getenv("HOME"), ".cursor", "mcp.json"))
 	if err := ProjectTo(reg, cursor, []string{"db"}); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestProjectTo_WritesOtherTools(t *testing.T) {
 	if _, ok := got.Servers["db"]; !ok {
 		t.Fatal("cursor 未收到 db server")
 	}
-	if got.Servers["db"].Env["DB"] != "x" {
+	if got.Servers["db"]["env"].(map[string]any)["DB"] != "x" {
 		t.Fatal("env 未同步")
 	}
 }
@@ -93,14 +93,12 @@ func TestProjectTo_PreservesExistingServers(t *testing.T) {
 	reg := &registry.Registry{Items: []*registry.Item{}, Tools: map[string]registry.ToolState{}}
 	ctx := context.Background()
 
-	// claude 有 server A
 	writeClaudeMcp(t, `{"mcpServers": {"A": {"command": "ca"}}}`)
 	f, _ := mcpread.ReadJSON(filepath.Join(os.Getenv("HOME"), ".claude.json"))
 	SyncFromTool(ctx, reg, "claude-code", f)
 
-	// cursor 已有 server B，写回 A 时 B 不能丢
 	writeCursorMcp(t, `{"mcpServers": {"B": {"command": "cb"}}}`)
-	cursor := jsonMcp{name: "cursor", path: filepath.Join(os.Getenv("HOME"), ".cursor", "mcp.json")}
+	cursor := jsonMcp("cursor", filepath.Join(os.Getenv("HOME"), ".cursor", "mcp.json"))
 	if err := ProjectTo(reg, cursor, []string{"A"}); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +115,7 @@ func TestRemoveFromTool(t *testing.T) {
 	withTempHome(t)
 	reg := &registry.Registry{Items: []*registry.Item{}, Tools: map[string]registry.ToolState{}}
 
-	cursor := jsonMcp{name: "cursor", path: filepath.Join(os.Getenv("HOME"), ".cursor", "mcp.json")}
+	cursor := jsonMcp("cursor", filepath.Join(os.Getenv("HOME"), ".cursor", "mcp.json"))
 	writeCursorMcp(t, `{"mcpServers": {"X": {"command": "cx"}, "Y": {"command": "cy"}}}`)
 	if err := RemoveFromTool(reg, cursor, "X"); err != nil {
 		t.Fatal(err)
@@ -128,5 +126,38 @@ func TestRemoveFromTool(t *testing.T) {
 	}
 	if _, ok := got.Servers["Y"]; !ok {
 		t.Fatal("Y 被误删")
+	}
+}
+
+// TestProjectTo_CodexToml 验证 TOML 工具写回（codex config.toml 保留其他顶层键）
+func TestProjectTo_CodexToml(t *testing.T) {
+	withTempHome(t)
+	reg := &registry.Registry{Items: []*registry.Item{}, Tools: map[string]registry.ToolState{}}
+	ctx := context.Background()
+
+	writeClaudeMcp(t, `{"mcpServers": {"db": {"command": "uv", "args": ["run", "db.py"]}}}`)
+	f, _ := mcpread.ReadJSON(filepath.Join(os.Getenv("HOME"), ".claude.json"))
+	SyncFromTool(ctx, reg, "claude-code", f)
+
+	// codex 已有一个自己的 server + 其他顶层键
+	codexFile := filepath.Join(os.Getenv("HOME"), ".codex", "config.toml")
+	os.WriteFile(codexFile, []byte("[mcp_servers.memory]\ncommand = \"npx\"\n\n[model]\nprovider = \"openai\"\n"), 0o600)
+
+	codex, _ := AdapterByName("codex")
+	if err := ProjectTo(reg, codex, []string{"db"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := mcpread.Read(codex.McpFile(), codex.Format(), codex.ServersKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Servers["db"] == nil {
+		t.Fatal("db 未写入 codex")
+	}
+	if got.Servers["memory"] == nil {
+		t.Fatal("codex 原有 memory 丢失")
+	}
+	if _, ok := got.Extra["model"]; !ok {
+		t.Fatal("codex 其他顶层键 model 丢失")
 	}
 }

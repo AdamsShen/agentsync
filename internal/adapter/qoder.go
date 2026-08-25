@@ -37,10 +37,15 @@ func (Qoder) WatchSpecs() []WatchSpec {
 			Tool:    "qoder",
 			Recurse: true,
 		},
+		ruleWatch("qoder", join(homeDir(), ".qoder", "rules")),
+		mcpWatch("qoder", join(homeDir(), ".qoder", "mcp.json")),
 	}
 }
 
 func (Qoder) SkillsDir() string { return join(homeDir(), ".qoder", "skills") }
+
+// RulesDir 本工具 rules 目录
+func (Qoder) RulesDir() string { return join(homeDir(), ".qoder", "rules") }
 
 func (Qoder) HasSKILL(dir string) bool {
 	_, err := os.Stat(join(dir, "SKILL.md"))
@@ -55,11 +60,13 @@ func (q Qoder) ProjectSkill(_ context.Context, canonicalPath, name string) error
 	return symlinkDir(canonicalPath, join(q.SkillsDir(), name))
 }
 
-func (Qoder) RemoveProjection(_ context.Context, kind Kind, name string) error {
-	if kind != registry.KindSkill {
-		return nil
-	}
-	return removeSymlinkOnly(join(homeDir(), ".qoder", "skills", name))
+// ProjectRule 在 ~/.qoder/rules/ 建软链指向 canonical
+func (q Qoder) ProjectRule(_ context.Context, canonicalPath, name string) error {
+	return symlinkDir(canonicalPath, join(q.RulesDir(), name))
+}
+
+func (q Qoder) RemoveProjection(_ context.Context, kind Kind, name string) error {
+	return removeProjection(kind, name, q.SkillsDir(), q.RulesDir())
 }
 
 func (q Qoder) IsOwnedProjection(_ context.Context, path string) (bool, error) {

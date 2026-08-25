@@ -45,6 +45,9 @@ func (Pi) WatchSpecs() []WatchSpec {
 
 func (Pi) SkillsDir() string { return join(homeDir(), ".pi", "agent", "skills") }
 
+// RulesDir Pi 无 rules 目录
+func (Pi) RulesDir() string { return "" }
+
 func (Pi) HasSKILL(dir string) bool {
 	_, err := os.Stat(join(dir, "SKILL.md"))
 	return err == nil
@@ -59,6 +62,9 @@ func (Pi) ParseSkill(_ context.Context, dir string) (*Skill, error) {
 func (Pi) ProjectSkill(_ context.Context, canonicalPath, name string) error {
 	return nil // zero-cost：Pi 直接读 canonical
 }
+
+// ProjectRule Pi 无 rules 目录，空操作
+func (Pi) ProjectRule(_ context.Context, canonicalPath, name string) error { return nil }
 
 func (Pi) RemoveProjection(_ context.Context, kind Kind, name string) error {
 	// Pi 无独立投影，无需清理

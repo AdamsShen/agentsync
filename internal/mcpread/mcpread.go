@@ -1,4 +1,8 @@
-// Package mcpread MCP 配置读取/写入：多工具格式适配（JSON/TOML/YAML）。
+// Package mcpread MCP 配置读取/写入：多工具、多格式适配（JSON/TOML/YAML）。
+//
+// 统一中间模型 File：Servers 存「原始 map」（保留每个 server 的全部字段，
+// 如 codex 的 startup_timeout_sec），Extra 存配置文件中 servers 键以外的其他顶层键。
+// 写回时按 format 序列化，避免丢字段、避免破坏工具自有的其他配置。
 package mcpread
 
 import (
@@ -6,29 +10,41 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/BurntSushi/toml"
+	"gopkg.in/yaml.v3"
 )
 
-// Server 一个 MCP server 定义（统一中间结构）
-type Server struct {
-	Type    string            `json:"type,omitempty"`    // http/sse/ws/stdio（空=stdio）
-	URL     string            `json:"url,omitempty"`
-	Command string            `json:"command,omitempty"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-}
+// Format 配置序列化格式
+type Format string
+
+const (
+	FormatJSON Format = "json"
+	FormatTOML Format = "toml"
+	FormatYAML Format = "yaml"
+)
 
 // File 一个 MCP 配置文件（读写模型）
 type File struct {
-	Path      string
-	Tool      string
-	Servers   map[string]Server
-	Extra     map[string]any // 配置文件中其他键（写回时保留）
+	Path    string
+	Tool    string
+	Servers map[string]map[string]any // server 名 -> 原始定义（保留全部字段）
+	Extra   map[string]any            // 配置文件中其他顶层键（写回时保留）
+
+	format Format // 写回格式
+	key    string // servers 所在顶层键名（如 mcpServers / mcp_servers / mcp）
 }
 
-// ReadJSON 读取 JSON 格式 MCP 配置（.mcp.json / ~/.cursor/mcp.json / ~/.qoder/mcp.json）
-func ReadJSON(path string) (*File, error) {
-	f := &File{Path: path, Servers: map[string]Server{}, Extra: map[string]any{}}
+// Read 按格式读取 MCP 配置；文件不存在返回空配置。
+// key 是 servers 所在的顶层键名。
+func Read(path string, format Format, key string) (*File, error) {
+	f := &File{
+		Path:    path,
+		Servers: map[string]map[string]any{},
+		Extra:   map[string]any{},
+		format:  format,
+		key:     key,
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -36,35 +52,43 @@ func ReadJSON(path string) (*File, error) {
 		}
 		return nil, err
 	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("解析 %s: %w", path, err)
-	}
-	if ms, ok := raw["mcpServers"]; ok {
-		var srv map[string]json.RawMessage
-		if err := json.Unmarshal(ms, &srv); err != nil {
-			return nil, fmt.Errorf("解析 mcpServers in %s: %w", path, err)
+	raw := map[string]any{}
+	switch format {
+	case FormatJSON:
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return nil, fmt.Errorf("解析 %s: %w", path, err)
 		}
-		for name, rawSrv := range srv {
-			var s Server
-			if err := json.Unmarshal(rawSrv, &s); err != nil {
-				return nil, fmt.Errorf("解析 server %s: %w", name, err)
+	case FormatTOML:
+		if err := toml.Unmarshal(data, &raw); err != nil {
+			return nil, fmt.Errorf("解析 %s: %w", path, err)
+		}
+	case FormatYAML:
+		if err := yaml.Unmarshal(data, &raw); err != nil {
+			return nil, fmt.Errorf("解析 %s: %w", path, err)
+		}
+	default:
+		return nil, fmt.Errorf("未知格式 %q", format)
+	}
+
+	if v, ok := raw[key]; ok {
+		if sm, ok := v.(map[string]any); ok {
+			for name, srv := range sm {
+				if s, ok := srv.(map[string]any); ok {
+					f.Servers[name] = s
+				}
 			}
-			f.Servers[name] = s
 		}
-		delete(raw, "mcpServers")
+		delete(raw, key)
 	}
-	for k, v := range raw {
-		var any any
-		if json.Unmarshal(v, &any) == nil {
-			f.Extra[k] = any
-		}
-	}
+	f.Extra = raw
 	return f, nil
 }
 
-// WriteJSON 写回 JSON 配置（合并 mcpServers，保留 Extra 键）
-func (f *File) WriteJSON() error {
+// ReadJSON JSON 格式快捷读取（servers 键 = mcpServers，Claude/Cursor/Qoder 同构）
+func ReadJSON(path string) (*File, error) { return Read(path, FormatJSON, "mcpServers") }
+
+// Write 按格式写回配置文件（合并 servers 键，保留 Extra）
+func (f *File) Write() error {
 	out := map[string]any{}
 	for k, v := range f.Extra {
 		out[k] = v
@@ -73,8 +97,25 @@ func (f *File) WriteJSON() error {
 	for name, s := range f.Servers {
 		ms[name] = s
 	}
-	out["mcpServers"] = ms
-	data, err := json.MarshalIndent(out, "", "  ")
+	out[f.key] = ms
+
+	var (
+		data []byte
+		err  error
+	)
+	switch f.format {
+	case FormatJSON:
+		data, err = json.MarshalIndent(out, "", "  ")
+		if err == nil {
+			data = append(data, '\n')
+		}
+	case FormatTOML:
+		data, err = toml.Marshal(out)
+	case FormatYAML:
+		data, err = yaml.Marshal(out)
+	default:
+		return fmt.Errorf("未知格式 %q", f.format)
+	}
 	if err != nil {
 		return err
 	}
@@ -83,6 +124,9 @@ func (f *File) WriteJSON() error {
 	}
 	return os.WriteFile(f.Path, data, 0o600)
 }
+
+// WriteJSON JSON 格式写回快捷方法
+func (f *File) WriteJSON() error { return f.Write() }
 
 // MergeFrom 把其他文件里的 server 合并进来（保留本文件已有、未被覆盖的）
 func (f *File) MergeFrom(src *File, names []string) {

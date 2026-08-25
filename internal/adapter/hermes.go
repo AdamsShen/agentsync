@@ -37,10 +37,14 @@ func (Hermes) WatchSpecs() []WatchSpec {
 			Tool:    "hermes",
 			Recurse: true,
 		},
+		mcpWatch("hermes", join(homeDir(), ".hermes", "config.yaml")),
 	}
 }
 
 func (Hermes) SkillsDir() string { return join(homeDir(), ".hermes", "skills") }
+
+// RulesDir hermes rules 目录待实测，暂不启用
+func (Hermes) RulesDir() string { return "" }
 
 func (Hermes) HasSKILL(dir string) bool {
 	_, err := os.Stat(join(dir, "SKILL.md"))
@@ -55,11 +59,13 @@ func (h Hermes) ProjectSkill(_ context.Context, canonicalPath, name string) erro
 	return symlinkDir(canonicalPath, join(h.SkillsDir(), name))
 }
 
-func (Hermes) RemoveProjection(_ context.Context, kind Kind, name string) error {
-	if kind != registry.KindSkill {
-		return nil
-	}
-	return removeSymlinkOnly(join(homeDir(), ".hermes", "skills", name))
+// ProjectRule hermes 无 rules 目录，空操作
+func (h Hermes) ProjectRule(_ context.Context, canonicalPath, name string) error {
+	return projectRule(h.RulesDir(), canonicalPath, name)
+}
+
+func (h Hermes) RemoveProjection(_ context.Context, kind Kind, name string) error {
+	return removeProjection(kind, name, h.SkillsDir(), h.RulesDir())
 }
 
 func (h Hermes) IsOwnedProjection(_ context.Context, path string) (bool, error) {

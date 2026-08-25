@@ -37,10 +37,14 @@ func (Codex) WatchSpecs() []WatchSpec {
 			Tool:    "codex",
 			Recurse: true,
 		},
+		mcpWatch("codex", join(homeDir(), ".codex", "config.toml")),
 	}
 }
 
 func (Codex) SkillsDir() string { return join(homeDir(), ".codex", "skills") }
+
+// RulesDir codex 走 AGENTS.md 单文件约定，无 rules 目录（待 M4.5 支持单文件规则）
+func (Codex) RulesDir() string { return "" }
 
 func (Codex) HasSKILL(dir string) bool {
 	_, err := os.Stat(join(dir, "SKILL.md"))
@@ -55,11 +59,13 @@ func (c Codex) ProjectSkill(_ context.Context, canonicalPath, name string) error
 	return symlinkDir(canonicalPath, join(c.SkillsDir(), name))
 }
 
-func (Codex) RemoveProjection(_ context.Context, kind Kind, name string) error {
-	if kind != registry.KindSkill {
-		return nil
-	}
-	return removeSymlinkOnly(join(homeDir(), ".codex", "skills", name))
+// ProjectRule codex 无 rules 目录，空操作
+func (c Codex) ProjectRule(_ context.Context, canonicalPath, name string) error {
+	return projectRule(c.RulesDir(), canonicalPath, name)
+}
+
+func (c Codex) RemoveProjection(_ context.Context, kind Kind, name string) error {
+	return removeProjection(kind, name, c.SkillsDir(), c.RulesDir())
 }
 
 func (c Codex) IsOwnedProjection(_ context.Context, path string) (bool, error) {
