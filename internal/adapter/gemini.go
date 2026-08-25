@@ -8,7 +8,9 @@ import (
 	"github.com/xmly/agentsync/internal/registry"
 )
 
-// Gemini 适配器：Gemini CLI（skills 目录 ~/.gemini/skills/，MCP 为 ~/.gemini/settings.json）
+// Gemini 适配器：Gemini CLI。
+// 已实测：skills 目录 ~/.gemini/skills/（gemini skills link 即 symlink 语义），
+// MCP 为 ~/.gemini/settings.json（JSON，mcpServers 键，与 claude-code 同构）。
 type Gemini struct{}
 
 func (Gemini) Name() string { return "gemini" }
@@ -27,7 +29,7 @@ func (Gemini) KindSupported(k Kind) bool {
 	return k == registry.KindSkill || k == registry.KindMCP || k == registry.KindRules
 }
 
-func (Gemini) SupportsSymlink() bool { return true } // 本机未装 gemini，待实测
+func (Gemini) SupportsSymlink() bool { return true } // 已实测：skills 目录内软链生效（gemini skills link 即 symlink 语义）
 
 func (Gemini) WatchSpecs() []WatchSpec {
 	return []WatchSpec{
@@ -37,12 +39,13 @@ func (Gemini) WatchSpecs() []WatchSpec {
 			Tool:    "gemini",
 			Recurse: true,
 		},
+		mcpWatch("gemini", join(homeDir(), ".gemini", "settings.json")),
 	}
 }
 
 func (Gemini) SkillsDir() string { return join(homeDir(), ".gemini", "skills") }
 
-// RulesDir gemini 本机未装，rules 目录约定待实测，暂不启用
+// RulesDir gemini rules 为单文件 GEMINI.md（非目录式），与 agentsync 目录式 rules 不匹配，暂不启用
 func (Gemini) RulesDir() string { return "" }
 
 func (Gemini) HasSKILL(dir string) bool {

@@ -1,7 +1,7 @@
 // Package mcpsync MCP 跨工具同步：读取各工具配置 → 合并 registry → 写回。
 //
-// 多工具多格式：claude-code/cursor/qoder 为 JSON(mcpServers)，
-// codex 为 TOML(mcp_servers)，opencode 为 JSON(mcp)，hermes 为 YAML(mcp_servers，待实测)。
+// 多工具多格式：claude-code/cursor/qoder/gemini 为 JSON(mcpServers)，
+// codex 为 TOML(mcp_servers)，opencode 为 JSON(mcp)，hermes 为 YAML(mcp_servers)。
 package mcpsync
 
 import (
@@ -47,6 +47,8 @@ func Adapters() []McpAdapter {
 		mcpCfg{"qoder", filepath.Join(h, ".qoder", "mcp.json"), mcpread.FormatJSON, "mcpServers"},
 		mcpCfg{"codex", filepath.Join(h, ".codex", "config.toml"), mcpread.FormatTOML, "mcp_servers"},
 		mcpCfg{"opencode", filepath.Join(h, ".config", "opencode", "opencode.json"), mcpread.FormatJSON, "mcp"},
+		// gemini 已实测：mcp 键名确为 mcpServers（JSON），settings.json 另含 security 等顶层键需无损保留
+		mcpCfg{"gemini", filepath.Join(h, ".gemini", "settings.json"), mcpread.FormatJSON, "mcpServers"},
 		// hermes 已实测：mcp 键名确为 mcp_servers（YAML），读写无损
 		mcpCfg{"hermes", filepath.Join(h, ".hermes", "config.yaml"), mcpread.FormatYAML, "mcp_servers"},
 	}
