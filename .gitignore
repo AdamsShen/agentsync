@@ -1,0 +1,6 @@
+# 二进制产物
+/agentsync
+/dist/
+
+# 本地测试
+*.log
