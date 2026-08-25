@@ -17,8 +17,8 @@ builds:
 
 archives:
   - format: binary
-    name_template: >-
-      {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if eq .Os "windows" }}.exe{{ end }}
+    # 注意：format: binary 对 Windows 会自动加 .exe，此处不要再手动加，否则成 .exe.exe
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: "checksums.txt"

@@ -13,24 +13,33 @@
 
 **方式一：一键脚本（推荐，无需 Go）**
 
+macOS / Linux：
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AdamsShen/agentsync/master/install.sh | bash
 ```
 
-**方式二：go install（需要 Go）**
+Windows（PowerShell）：
+
+```powershell
+irm https://raw.githubusercontent.com/AdamsShen/agentsync/master/install.ps1 | iex
+```
+
+**方式二：go install（需要 Go，三平台通用）**
 
 ```bash
 go install github.com/AdamsShen/agentsync@latest
 ```
 
-安装后启动：
+一键脚本会自动注册开机自启并启动；`go install` 只装二进制，需手动：
 
 ```bash
-agentsync install    # 注册开机自启服务（推荐，装一次长期生效）
+agentsync install    # 注册开机自启服务 + 立即启动
 agentsync daemon     # 或前台启动守护进程（调试用）
 ```
 
 > 说明：agentsync 只处理「安装后新增」的配置，安装前已存在的配置不处理（无 adopt）。
+> Windows 的开机自启（`sc create` 系统服务）需管理员权限。
 
 ## 快速开始（本地构建/开发）
 
