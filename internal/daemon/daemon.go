@@ -20,8 +20,12 @@ const debounce = 2 * time.Second
 // Handler 实现 watch.Handler
 type Handler struct {
 	Reg      *registry.Registry
-	Adapters []adapter.Adapter // 已检测适配器
+	Adapters []adapter.Adapter // 已检测适配器（动态更新）
+	W        *watch.Watcher    // 监听器（动态接入新 agent 用）
 }
+
+// SetWatcher 注入监听器（供动态接入）
+func (h *Handler) SetWatcher(w *watch.Watcher) { h.W = w }
 
 // OnNewSkill 工具目录出现新 skill：收敛 → 原副本换软链 → 询问 → 分发
 func (h *Handler) OnNewSkill(ctx context.Context, a adapter.Adapter, dir string) error {
@@ -78,7 +82,28 @@ func (h *Handler) OnNewSkill(ctx context.Context, a adapter.Adapter, dir string)
 
 // OnRescan 周期重扫：检测新 agent 并加入监听
 func (h *Handler) OnRescan(ctx context.Context) error {
-	return nil // M0 简化：监听集合由 Run 启动时固定；动态接入在 M2 完成
+	adReg := adapter.NewRegistry()
+	detected := adReg.DetectAll(ctx)
+	// 找出新出现的工具
+	have := map[string]bool{}
+	for _, a := range h.Adapters {
+		have[a.Name()] = true
+	}
+	for _, a := range detected {
+		if !have[a.Name()] {
+			log.Printf("[daemon] 检测到新 agent: %s，加入监听", a.Name())
+			h.Adapters = append(h.Adapters, a)
+			if h.W != nil {
+				h.W.AddAdapter(a)
+			}
+		}
+	}
+	// 记录检测状态进 registry
+	for _, a := range detected {
+		h.Reg.Tools[a.Name()] = registry.ToolState{Detected: true, Enabled: true}
+	}
+	_ = h.Reg.Save()
+	return nil
 }
 
 // EnsureCanonical 确保 canonical 目录存在
@@ -103,6 +128,7 @@ func Run(ctx context.Context, reg *registry.Registry) error {
 
 	h := &Handler{Reg: reg, Adapters: detected}
 	w := watch.New(reg, detected, h, debounce)
+	h.SetWatcher(w)
 	return w.Run(ctx)
 }
 

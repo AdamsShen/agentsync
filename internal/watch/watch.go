@@ -13,7 +13,6 @@ import (
 
 	"github.com/xmly/agentsync/internal/adapter"
 	"github.com/xmly/agentsync/internal/registry"
-	"github.com/xmly/agentsync/internal/sync"
 )
 
 // Handler 处理一个收敛/分发循环
@@ -23,13 +22,12 @@ type Handler interface {
 	// OnRescan 周期性重扫检测新 agent
 	OnRescan(ctx context.Context) error
 }
-
-// Watcher 多目录监听器
 type Watcher struct {
-	reg     *registry.Registry
+	reg      *registry.Registry
 	adapters []adapter.Adapter // 已检测适配器
-	handler Handler
+	handler  Handler
 	debounce time.Duration
+	fw       *fsnotify.Watcher // 动态接入用
 }
 
 // New 创建监听器
@@ -44,6 +42,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 		return err
 	}
 	defer fw.Close()
+	w.fw = fw
 
 	// 注册所有已检测工具的 skills 目录
 	for _, a := range w.adapters {
@@ -177,5 +176,22 @@ func ensureAndWatch(fw *fsnotify.Watcher, dir string) error {
 	return fw.Add(dir)
 }
 
-// 占位引用 sync 包，避免未使用（Handler 实际实现方会用到）
-var _ = sync.CanonicalRoot
+// AddAdapter 动态加入一个已检测适配器的监听（新 agent 接入）
+func (w *Watcher) AddAdapter(a adapter.Adapter) {
+	// 先检查是否已在集合
+	for _, e := range w.adapters {
+		if e.Name() == a.Name() {
+			return
+		}
+	}
+	w.adapters = append(w.adapters, a)
+	for _, spec := range a.WatchSpecs() {
+		if spec.Kind == registry.KindSkill {
+			_ = ensureAndWatch(w.fw, spec.Path)
+			log.Printf("[watch] 新监听: %s", spec.Path)
+		}
+	}
+}
+
+// Adapters 返回当前适配器集合（供 Handler 读取）
+func (w *Watcher) Adapters() []adapter.Adapter { return w.adapters }

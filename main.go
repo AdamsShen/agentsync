@@ -12,19 +12,18 @@ import (
 
 	"github.com/xmly/agentsync/internal/daemon"
 	"github.com/xmly/agentsync/internal/registry"
+	"github.com/xmly/agentsync/internal/svc"
 )
 
-const usage = `agentsync —— 跨 Agent 工具配置自动同步工具（M0）
+const usage = `agentsync —— 跨 Agent 工具配置自动同步工具
 
 用法：
-  agentsync daemon     启动守护进程（监听工具目录 → 收敛 → 分发）
-  agentsync status     检测本机 agent + 显示 registry 状态
-  agentsync list       列出已收敛的配置
-  agentsync sync <id>  手动补分发
-  agentsync help       显示帮助
-
-M0 范围：监听 claude-code / cursor / qoder / hermes 的 skills 目录，
-收敛到 ~/.agents/skills/，原副本换软链，询问分发到其他工具。
+  agentsync daemon            启动守护进程（监听工具目录 → 收敛 → 分发）
+  agentsync install           注册开机自启服务（launchd/systemd/Windows Service）
+  agentsync uninstall         移除开机自启服务
+  agentsync status            检测本机 agent + 显示 registry 状态
+  agentsync list              列出已收敛的配置
+  agentsync help              显示帮助
 `
 
 func main() {
@@ -48,6 +47,17 @@ func main() {
 		if err := daemon.Run(ctx, reg); err != nil {
 			log.Fatalf("守护进程退出: %v", err)
 		}
+	case "install":
+		if err := svc.Install(); err != nil {
+			log.Fatalf("注册服务失败: %v", err)
+		}
+		fmt.Println("已注册开机自启服务。")
+		_ = svc.Start()
+	case "uninstall":
+		if err := svc.Uninstall(); err != nil {
+			log.Fatalf("移除服务失败: %v", err)
+		}
+		fmt.Println("已移除开机自启服务。")
 	case "status":
 		printStatus(reg)
 	case "list":
