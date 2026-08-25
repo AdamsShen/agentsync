@@ -83,6 +83,8 @@ func (w *Watcher) Run(ctx context.Context) error {
 	// 建立「无 adopt」基线：记录启动时已存在的实体配置，之后只收敛基线之外的新增。
 	w.buildBaseline()
 
+	log.Printf("[watch] 已注册 %d 个监听，基线 %d 项，进入事件循环", len(w.entries), len(w.baseline))
+
 	rescan := time.NewTicker(w.rescan)
 	defer rescan.Stop()
 
