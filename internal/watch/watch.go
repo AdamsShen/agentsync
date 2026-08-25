@@ -79,6 +79,14 @@ func (w *Watcher) Run(ctx context.Context) error {
 		}
 	}
 
+	// 启动初始全量扫描：收敛启动前已存在的实体配置（消除靠 fsnotify 事件触发的延迟与不可预测性）。
+	// scanSkillDir/scanRulesDir/scanRuleFile 内部有判重，已收敛/我方软链会跳过。
+	for _, a := range w.adapters {
+		for _, spec := range a.WatchSpecs() {
+			w.dispatch(ctx, fw, spec.Path)
+		}
+	}
+
 	rescan := time.NewTicker(w.rescan)
 	defer rescan.Stop()
 

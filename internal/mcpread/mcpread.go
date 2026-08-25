@@ -6,6 +6,7 @@
 package mcpread
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -55,9 +56,14 @@ func Read(path string, format Format, key string) (*File, error) {
 	raw := map[string]any{}
 	switch format {
 	case FormatJSON:
-		if err := json.Unmarshal(data, &raw); err != nil {
+		// 用 UseNumber 保留数字原始形态，避免 json.Unmarshal 默认把整数解析成 float64，
+		// 导致跨格式写回（如 JSON 源分发到 TOML 工具）时 120 变成 120.0。
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.UseNumber()
+		if err := dec.Decode(&raw); err != nil {
 			return nil, fmt.Errorf("解析 %s: %w", path, err)
 		}
+		normalizeJSONNumbers(raw)
 	case FormatTOML:
 		if err := toml.Unmarshal(data, &raw); err != nil {
 			return nil, fmt.Errorf("解析 %s: %w", path, err)
@@ -82,6 +88,40 @@ func Read(path string, format Format, key string) (*File, error) {
 	}
 	f.Extra = raw
 	return f, nil
+}
+
+// normalizeJSONNumbers 递归把 JSON 解析产生的 json.Number 归一化为 int64/float64，
+// 避免整数被解析成 float64 后，跨格式写回（TOML/YAML）时 120 变成 120.0。
+func normalizeJSONNumbers(v any) {
+	switch vv := v.(type) {
+	case map[string]any:
+		for k, val := range vv {
+			if n, ok := val.(json.Number); ok {
+				vv[k] = numberToAny(n)
+			} else {
+				normalizeJSONNumbers(val)
+			}
+		}
+	case []any:
+		for i, val := range vv {
+			if n, ok := val.(json.Number); ok {
+				vv[i] = numberToAny(n)
+			} else {
+				normalizeJSONNumbers(val)
+			}
+		}
+	}
+}
+
+// numberToAny json.Number → int64（整数）或 float64（小数）。
+func numberToAny(n json.Number) any {
+	if i, err := n.Int64(); err == nil {
+		return i
+	}
+	if f, err := n.Float64(); err == nil {
+		return f
+	}
+	return n.String()
 }
 
 // ReadJSON JSON 格式快捷读取（servers 键 = mcpServers，Claude/Cursor/Qoder 同构）

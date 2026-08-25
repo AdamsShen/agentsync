@@ -183,3 +183,49 @@ func TestMergeFrom(t *testing.T) {
 		t.Fatal("merge 失败")
 	}
 }
+
+func TestReadJSON_PreservesIntType(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "mcp.json")
+	writeFile(t, p, `{"mcpServers": {"x": {"command": "echo", "timeout": 120, "ratio": 1.5}}}`)
+	f, err := Read(p, FormatJSON, "mcpServers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := f.Servers["x"]
+	// 整数保持 int64，不是 float64（避免跨格式写回 120 → 120.0）
+	if v, ok := srv["timeout"].(int64); !ok || v != 120 {
+		t.Fatalf("timeout 应为 int64(120)，实际 %T %v", srv["timeout"], srv["timeout"])
+	}
+	// 小数保持 float64
+	if v, ok := srv["ratio"].(float64); !ok || v != 1.5 {
+		t.Fatalf("ratio 应为 float64(1.5)，实际 %T %v", srv["ratio"], srv["ratio"])
+	}
+}
+
+func TestWriteToml_PreservesIntNotFloat(t *testing.T) {
+	dir := t.TempDir()
+	// 模拟 JSON 源分发到 TOML 工具：读 JSON 后写 TOML
+	jsonP := filepath.Join(dir, "mcp.json")
+	writeFile(t, jsonP, `{"mcpServers": {"x": {"command": "echo", "timeout": 120}}}`)
+	f, err := Read(jsonP, FormatJSON, "mcpServers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 改为 TOML 目标写回
+	tomlP := filepath.Join(dir, "config.toml")
+	f.Path = tomlP
+	f.format = FormatTOML
+	f.key = "mcp_servers"
+	if err := f.Write(); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(tomlP)
+	out := string(data)
+	if strings.Contains(out, "120.0") {
+		t.Fatalf("TOML 写回不应出现 120.0（整数应保持 int）:\n%s", out)
+	}
+	if !strings.Contains(out, "timeout = 120") {
+		t.Fatalf("TOML 写回应含 timeout = 120:\n%s", out)
+	}
+}

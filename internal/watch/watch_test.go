@@ -13,9 +13,13 @@ import (
 // mockHandler 记录 OnRuleFile 回调的 Handler 实现
 type mockHandler struct {
 	ruleFileCalls []string
+	skillCalls    []string
 }
 
-func (m *mockHandler) OnSkill(context.Context, adapter.Adapter, string) error { return nil }
+func (m *mockHandler) OnSkill(_ context.Context, _ adapter.Adapter, dir string) error {
+	m.skillCalls = append(m.skillCalls, dir)
+	return nil
+}
 func (m *mockHandler) OnRules(context.Context, adapter.Adapter, string) error { return nil }
 func (m *mockHandler) OnRuleFile(_ context.Context, _ adapter.Adapter, file string) error {
 	m.ruleFileCalls = append(m.ruleFileCalls, file)
@@ -57,5 +61,35 @@ func TestScanRuleFile_Missing(t *testing.T) {
 	w.scanRuleFile(context.Background(), adapter.Codex{}, filepath.Join(t.TempDir(), "AGENTS.md"))
 	if len(h.ruleFileCalls) != 0 {
 		t.Fatalf("文件不存在不应回调，实际 %d", len(h.ruleFileCalls))
+	}
+}
+
+// TestDispatchInitialScanSkill 验证启动初始扫描：dispatch 对已有实体 skill 触发收敛。
+func TestDispatchInitialScanSkill(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "foo")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: foo\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := &registry.Registry{Items: []*registry.Item{}, Tools: map[string]registry.ToolState{}}
+	h := &mockHandler{}
+	w := &Watcher{
+		reg:     reg,
+		handler: h,
+		entries: map[string]entry{
+			dir: {a: adapter.ClaudeCode{}, spec: adapter.WatchSpec{Path: dir, Kind: registry.KindSkill, Tool: "claude-code", Recurse: true}},
+		},
+	}
+
+	w.dispatch(context.Background(), nil, dir)
+	if len(h.skillCalls) != 1 {
+		t.Fatalf("初始扫描应收敛 1 个 skill，实际 %d", len(h.skillCalls))
+	}
+	if h.skillCalls[0] != skillDir {
+		t.Fatalf("收敛路径错误: %s", h.skillCalls[0])
 	}
 }

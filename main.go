@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/xmly/agentsync/internal/adapter"
 	"github.com/xmly/agentsync/internal/daemon"
 	"github.com/xmly/agentsync/internal/registry"
 	"github.com/xmly/agentsync/internal/svc"
@@ -61,6 +62,10 @@ func main() {
 		}
 		fmt.Println("已移除开机自启服务。")
 	case "status":
+		// 主动检测本机 agent（而非只读 registry 缓存的检测状态），再展示
+		for _, a := range adapter.NewRegistry().DetectAll(ctx) {
+			reg.Tools[a.Name()] = registry.ToolState{Detected: true, Enabled: true}
+		}
 		printStatus(reg)
 	case "list":
 		printList(reg)
